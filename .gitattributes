@@ -1,0 +1,7 @@
+* text=auto
+*.ipynb text eol=lf
+*.py text eol=lf
+data/** -text
+*.xlsx binary
+*.docx binary
+*.pptx binary

@@ -1,0 +1,13 @@
+# Entornos y cachés
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.streamlit/secrets.toml
+
+# Sistema operativo y temporales de Office
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
