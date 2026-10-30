@@ -13,7 +13,7 @@ digital de cada entidad.
 ## Estructura del proyecto
 
 ```
-Laboratorio2_grupo5/
+Estadistica_Analitica_Grupo5/
 ├── notebooks/
 │   ├── 01_Lab1_EDA_Encuesta_Terremoto.ipynb      ← Lab 1: exploración, calidad de datos, objetivo, cruce con el DANE
 │   └── 02_Lab2_Estadistica_Asociacion.ipynb      ← Lab 2: descriptivas, forma, correlación, χ², ANOVA/Kruskal-Wallis
