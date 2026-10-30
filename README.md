@@ -1,6 +1,6 @@
 # Afectación digital de entidades públicas tras el terremoto del 10 de agosto de 2026
 
-**Estadística para Analítica de Datos: laboratorios del curso**
+**Estadística para Analítica de Datos: laboratorios del curso · Grupo 5**
 Especialización en Analítica Estratégica de Datos · Universidad Pedagógica y Tecnológica de Colombia (UPTC)
 Profesor: Duván Cataño
 
@@ -13,7 +13,7 @@ digital de cada entidad.
 ## Estructura del proyecto
 
 ```
-Estadistica_Terremoto_UPTC/
+Laboratorio2_grupo5/
 ├── notebooks/
 │   ├── 01_Lab1_EDA_Encuesta_Terremoto.ipynb      ← Lab 1: exploración, calidad de datos, objetivo, cruce con el DANE
 │   └── 02_Lab2_Estadistica_Asociacion.ipynb      ← Lab 2: descriptivas, forma, correlación, χ², ANOVA/Kruskal-Wallis
