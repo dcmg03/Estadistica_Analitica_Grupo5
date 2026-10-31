@@ -7,11 +7,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 from estadistica import medidas, forma_texto, atipicos_iqr, correlaciones, independencia, comparar_grupos
 
-st.set_page_config(page_title='Afectación digital · Terremoto 2026', page_icon='📊', layout='wide')
+st.set_page_config(page_title='Afectación digital · Terremoto 2026', layout='wide')
 
 
 def f4(tabla):
@@ -20,7 +22,7 @@ def f4(tabla):
 
 
 DATA = Path(__file__).resolve().parent.parent / 'data' / 'processed'
-AZUL, GRIS, AMARILLO = '#2a78d6', '#a3a29b', '#FFC000'
+AZUL, GRIS = '#2a78d6', '#a3a29b'
 ORD_OBJ = ['Sin afectación TIC', 'Bajo', 'Moderado', 'Alto', 'Crítico']
 SEQ = ['#9ec5f4', '#6da7ec', '#3987e5', '#1c5cab', '#0d366b']
 CONECT = ['Normal.', 'Degradada o inestable.', 'Disponible únicamente mediante mecanismos alternativos.', 'Sin conectividad.']
@@ -37,6 +39,7 @@ def ordenar(tabla, filas, columnas):
         tabla = tabla.reindex(columns=[o for o in ORDENES[columnas] if o in tabla.columns] + [o for o in tabla.columns if o not in ORDENES[columnas]])
     return tabla
 
+
 NUM = {'ipm': 'IPM municipal (%)', 'ipm_rural': 'IPM rural (%)', 'ipm_cabecera': 'IPM cabecera (%)',
        'duracion_min': 'Duración del formulario (min)', 'n_infra_afectada': 'N° de elementos de infraestructura afectados',
        'n_servicios_caidos': 'N° de servicios caídos o con afectaciones', 'n_sistemas_afectados': 'N° de sistemas afectados',
@@ -51,6 +54,58 @@ MUN = {'ipm': 'IPM municipal (%)', 'pct_satelite': '% entidades que dependen del
        'Trabajo informal': '% trabajo informal', 'Analfabetismo': '% analfabetismo'}
 
 
+def nombre_mpio(s):
+    """PUEBLO RICO -> Pueblo Rico; BELÉN DE UMBRÍA -> Belén de Umbría."""
+    return s.str.title().str.replace(' De ', ' de ').str.replace(' Del ', ' del ')
+
+
+def nombre_propio(txt):
+    """VALLE DEL CAUCA -> Valle del Cauca (una sola cadena de texto, no una Series)."""
+    t = str(txt).title()
+    for a, b in [(' De ', ' de '), (' Del ', ' del '), (' La ', ' la '), (' Las ', ' las '), (' Los ', ' los ')]:
+        t = t.replace(a, b)
+    return t
+
+
+def histograma(df, v, log=False, nbins=40):
+    """Histograma con diagrama de caja; al pasar el mouse muestra los municipios de cada barra y de cada atípico."""
+    s = df[v].dropna()
+    titulo = f'Histograma y diagrama de caja · {NUM[v]}'
+    if log:   # escala logarítmica (duración): histograma estándar
+        fig = px.histogram(df, x=v, nbins=nbins, marginal='box', color_discrete_sequence=[AZUL], labels={v: NUM[v]},
+                           title=titulo, log_x=True, hover_data=['mpio'])
+        fig.update_traces(hovertemplate=f'{NUM[v]}: %{{x}}<br>N° de entidades: %{{y}}<extra></extra>', selector=dict(type='histogram'))
+        fig.update_layout(yaxis_title='N° de entidades')
+        fila = 1
+    else:
+        t = df.loc[df[v].notna(), [v, 'mpio']]
+        bordes = np.histogram_bin_edges(t[v], bins=nbins)
+        t = t.assign(barra=pd.cut(t[v], bordes, include_lowest=True, labels=False))
+        filas = []
+        for i in range(len(bordes) - 1):
+            top = t.loc[t['barra'] == i, 'mpio'].value_counts()
+            txt = '<br>'.join(f'{m}: {n}' for m, n in top.head(6).items())
+            if len(top) > 6:
+                txt += f'<br>… y {len(top) - 6} municipios más'
+            filas.append((bordes[i], bordes[i + 1], int(top.sum()), txt or '—'))
+        h = pd.DataFrame(filas, columns=['desde', 'hasta', 'n', 'mpios'])
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[.18, .82], vertical_spacing=.03)
+        fig.add_trace(go.Box(x=t[v], name='', boxpoints='outliers', notched=True, marker_color=AZUL, text=t['mpio'],
+                             hoverinfo='x+text'), row=1, col=1)
+        fig.add_trace(go.Bar(x=(h['desde'] + h['hasta']) / 2, y=h['n'], width=h['hasta'] - h['desde'], marker_color=AZUL,
+                             marker_line=dict(color='white', width=.5), customdata=h[['desde', 'hasta', 'mpios']],
+                             hovertemplate=f'{NUM[v]}: %{{customdata[0]:.1f}} a %{{customdata[1]:.1f}}<br>'
+                                           '<b>N° de entidades: %{y}</b><br>%{customdata[2]}<extra></extra>'), row=2, col=1)
+        fig.update_layout(title=titulo, showlegend=False, bargap=0)
+        fig.update_yaxes(showticklabels=False, row=1, col=1)
+        fig.update_yaxes(title_text='N° de entidades', row=2, col=1)
+        fig.update_xaxes(title_text=NUM[v], row=2, col=1)
+        fila = 2
+    fig.add_vline(x=s.mean(), line_color='#eb6834', row=fila, col=1)
+    fig.add_vline(x=s.median(), line_dash='dash', line_color='#0b0b0b', row=fila, col=1)
+    return fig
+
+
 @st.cache_data
 def cargar():
     base = pd.read_csv(DATA / 'base_lab2.csv', dtype={'cod_mpio': str})
@@ -58,6 +113,8 @@ def cargar():
     base['nivel_afectacion_cat'] = pd.Categorical(base['nivel_afectacion_cat'], ORD_OBJ, ordered=True)
     for c in base.select_dtypes(include=['object', 'string']):
         base[c] = base[c].str.strip()
+    base['mpio'] = nombre_mpio(base['municipio']) + ' (' + base['departamento'].str.title() + ')'
+    mun = mun.merge(base[['cod_mpio', 'mpio']].drop_duplicates('cod_mpio'), on='cod_mpio', how='left')
     return base, mun
 
 
@@ -96,9 +153,11 @@ t1, t2, t3, t4, t5, t6 = st.tabs(['Resumen', 'Univariado', 'Correlación', 'Inde
 # ---------------- Resumen ----------------
 with t1:
     c1, c2, c3, c4 = st.columns(4)
+    pct_critico = (df['nivel_afectacion_cat'] == 'Crítico').mean() * 100
+    pct_sinconec = (df['estado_conectividad'] == 'Sin conectividad.').mean() * 100
     c1.metric('Entidades', f'{len(df)}')
-    c2.metric('En nivel Crítico', f'{(df["nivel_afectacion_cat"] == "Crítico").mean() * 100:.1f} %')
-    c3.metric('Sin conectividad', f'{(df["estado_conectividad"] == "Sin conectividad.").mean() * 100:.1f} %')
+    c2.metric('En nivel Crítico', f'{pct_critico:.1f} %')
+    c3.metric('Sin conectividad', f'{pct_sinconec:.1f} %')
     c4.metric('IPM mediano del municipio', f'{df["ipm"].median():.1f} %')
     a, b = st.columns(2)
     vc = df['nivel_afectacion_cat'].value_counts().reindex(ORD_OBJ).fillna(0).reset_index()
@@ -124,12 +183,9 @@ with t2:
     a.dataframe(f4(medidas(s)), width='stretch', height=700)
     with b:
         log = st.checkbox('Escala logarítmica en el eje x', value=(v == 'duracion_min'))
-        fig = px.histogram(df, x=v, nbins=40, marginal='box', color_discrete_sequence=[AZUL], labels={v: NUM[v]},
-                           title=f'Histograma y diagrama de caja · {NUM[v]}', log_x=log)
-        fig.add_vline(x=s.mean(), line_color='#eb6834', row=1, col=1)
-        fig.add_vline(x=s.median(), line_dash='dash', line_color='#0b0b0b', row=1, col=1)
+        fig = histograma(df, v, log)
         st.plotly_chart(fig, width='stretch')
-        st.caption('Línea naranja: media · línea punteada: mediana')
+        st.caption('Línea naranja: media · línea punteada: mediana · Pase el mouse por una barra o un punto para ver de qué municipios son esas entidades.')
         st.markdown(f'**Forma:** {forma_texto(s)}')
         st.markdown('**Atípicos por el criterio IQR (1,5 × IQR):**')
         st.dataframe(f4(pd.DataFrame([atipicos_iqr(s)])), width='stretch', hide_index=True)
@@ -158,7 +214,8 @@ with t3:
     c1, c2 = st.columns([2, 1])
     datos = datos.assign(Grupo=np.where(datos['departamento'] == 'CHOCÓ', 'Chocó', 'Otros departamentos'))
     fig = px.scatter(datos, x=x, y=y, color='Grupo', color_discrete_map={'Chocó': AZUL, 'Otros departamentos': GRIS},
-                     labels={x: nombres[x], y: nombres[y]}, title=f'{nombres[y]} vs {nombres[x]}', opacity=.8)
+                     labels={x: nombres[x], y: nombres[y]}, title=f'{nombres[y]} vs {nombres[x]}', opacity=.8,
+                     hover_name='mpio')
     c1.plotly_chart(fig, width='stretch')
     with c2:
         st.dataframe(f4(correlaciones(datos[x], datos[y])), width='stretch')
