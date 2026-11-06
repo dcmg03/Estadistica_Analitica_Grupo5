@@ -247,154 +247,115 @@ def pestana_clasificacion(base, clf, meta, filtro):
 
 
 # =============================== PIPELINE (presentación) ===============================
-PASOS = ['0. Datos originales', '1. Imputación', '2. log(1 + x) de los conteos', '3. Escalamiento', '4. One-hot', '5. Modelo y predicción']
-NOMBRE_PASO = {'imputar': '1. Imputación', 'log1p': '2. log(1 + x) de los conteos', 'escalar': '3. Escalamiento'}
+CORTO = {'n_servicios_caidos': 'Servicios caídos', 'n_infra_afectada': 'Infraestructura afectada', 'n_sistemas_afectados': 'Sistemas afectados',
+         'ipm': 'Pobreza del municipio (IPM, %)', 'indice_vulnerabilidad': 'Índice de vulnerabilidad', 'tipo_entidad_g': 'Tipo de entidad',
+         'estado_conectividad': 'Conectividad', 'energia_g': 'Energía', 'personal_afectado': 'Personal TIC afectado',
+         'estado_sistemas': 'Sistemas de información', 'riesgo_continuidad': 'Riesgo para la operación', 'sede_contingencia': 'Requiere sede alterna',
+         'zonas_incomunicadas': 'Zonas incomunicadas', 'estado_infra': 'Infraestructura física', 'departamento': 'Departamento'}
 
 
-def _franja(actual):
-    """Franja de pasos con el paso actual resaltado."""
-    cajas = []
-    for p in PASOS:
-        on = p == actual
-        cajas.append(f'<div style="flex:1;padding:10px 6px;border-radius:8px;text-align:center;font-size:13px;'
-                     f'background:{AZUL if on else "#eef3fb"};color:{"white" if on else "#1a1a1a"};'
-                     f'font-weight:{700 if on else 400};border:1px solid {AZUL if on else "#d6e3f5"}">{p}</div>')
-    st.markdown('<div style="display:flex;gap:6px;align-items:stretch;margin:6px 0 14px">' + '<span style="align-self:center">→</span>'.join(cajas)
-                + '</div>', unsafe_allow_html=True)
+def _nombre_columna(col, cat):
+    """'cualitativas__personal_afectado_Sí' -> 'Personal TIC afectado = Sí'."""
+    bloque, resto = col.split('__', 1)
+    if bloque != 'cualitativas':
+        return CORTO.get(resto, resto)
+    for v in sorted(cat, key=len, reverse=True):
+        if resto.startswith(v + '_'):
+            return f'{CORTO.get(v, v)} = {resto[len(v) + 1:]}'
+    return resto
 
 
-def _etapas_numericas(pre, ent):
-    """Valor de cada variable numérica después de cada paso de su bloque."""
-    filas = []
-    for nombre, pasos, cols in pre.transformers_:
-        if nombre not in ('conteos', 'numericas'):
-            continue
-        x = ent[cols].astype(float)          # DataFrame: el imputador se ajustó con nombres de columnas
-        fila = {c: {'Bloque': nombre, '0. Datos originales': x.iloc[0, j]} for j, c in enumerate(cols)}
-        for paso, tr in pasos.steps:
-            x = tr.transform(x)
-            for j, c in enumerate(cols):
-                fila[c][NOMBRE_PASO[paso]] = x[0, j]
-        for c in cols:
-            fila[c].setdefault('2. log(1 + x) de los conteos', np.nan)
-            filas.append({'Variable': ETIQUETAS.get(c, c), **fila[c]})
-    return pd.DataFrame(filas).set_index('Variable')
+def _datos_linea(clf, fila, num, cat):
+    """Datos de una entidad en cada estación del pipeline, para la línea de ensamble (HTML)."""
+    pre, mod = clf.named_steps['preprocesamiento'], clf.named_steps['modelo']
+    ent = fila[num + cat].to_frame().T.infer_objects()
+    for c in num:
+        ent[c] = pd.to_numeric(ent[c], errors='coerce')
+    bloques = {n: (t, cols) for n, t, cols in pre.transformers_}
+    f = lambda v: None if pd.isna(v) else float(v)
+    numericas, conteos, escalado, cualitativas, onehot = [], [], [], [], []
+    for nombre in ('conteos', 'numericas'):
+        tr, cols = bloques[nombre]
+        x0 = ent[cols].astype(float)
+        imp = tr.named_steps['imputar'].transform(x0)
+        x = imp
+        if 'log1p' in tr.named_steps:
+            x = tr.named_steps['log1p'].transform(x)
+        z = tr.named_steps['escalar'].transform(x)
+        for j, c in enumerate(cols):
+            dec = 1 if c == 'ipm' else 0
+            numericas.append({'lab': CORTO[c], 'orig': f(x0.iloc[0, j]), 'faltaba': bool(pd.isna(x0.iloc[0, j])), 'imputado': f(imp[0, j]), 'dec': dec})
+            if nombre == 'conteos':
+                conteos.append({'lab': CORTO[c], 'antes': f(imp[0, j]), 'despues': f(x[0, j])})
+            escalado.append({'lab': CORTO[c] + (' (después del log)' if nombre == 'conteos' else ''), 'entrada': f(x[0, j]), 'z': f(z[0, j]),
+                             'dec': 2 if nombre == 'conteos' else dec})
+    tr, cols = bloques['cualitativas']
+    imp = tr.named_steps['imputar'].transform(ent[cols])
+    oh = tr.named_steps['onehot']
+    for j, c in enumerate(cols):
+        o = ent[c].iloc[0]
+        cualitativas.append({'lab': CORTO[c], 'orig': None if pd.isna(o) else str(o), 'faltaba': bool(pd.isna(o)), 'imputado': str(imp[0, j])})
+        onehot.append({'lab': CORTO[c], 'opciones': [{'nombre': str(k), 'on': str(k) == str(imp[0, j]), 'ref': i == 0}
+                                                     for i, k in enumerate(oh.categories_[j])]})
+    zt = pre.transform(ent)[0]
+    nombres = pre.get_feature_names_out()
+    ap = pd.DataFrame({'lab': [_nombre_columna(n, cat) for n in nombres], 'v': zt * mod.coef_[0]})
+    ap = ap[ap['v'].abs() > 1e-9]
+    top = ap.reindex(ap['v'].abs().sort_values(ascending=False).index).head(8)
+    logit = float(mod.intercept_[0] + ap['v'].sum())
+    esc = bloques['numericas'][0].named_steps['escalar']
+    ipm = ent['ipm'].iloc[0]
+    n_ref = sum(1 for v in onehot if any(o['on'] and o['ref'] for o in v['opciones']))
+    return {'nombre': str(fila['razon_social']).strip(), 'lugar': f"{fila['mpio']} · {str(fila['tipo_entidad']).strip()}",
+            'nivel': str(fila['nivel_afectacion_cat']), 'real': int(fila['alto_critico']),
+            'numericas': numericas, 'cualitativas': cualitativas, 'n_faltantes': sum(v['faltaba'] for v in numericas + cualitativas),
+            'conteos': conteos, 'escalado': escalado,
+            'ejemplo_ipm': None if pd.isna(ipm) else {'x': float(ipm), 'media': float(esc.mean_[0]), 'sd': float(esc.scale_[0]),
+                                                      'z': float((ipm - esc.mean_[0]) / esc.scale_[0])},
+            'onehot': onehot, 'n_onehot': int(sum(len(v['opciones']) - 1 for v in onehot)), 'n_ref': n_ref,
+            'aportes': [{'lab': r.lab, 'v': float(r.v)} for r in top.itertuples()], 'resto': float(ap['v'].sum() - top['v'].sum()),
+            'intercepto': float(mod.intercept_[0]), 'logit': logit, 'prob': float(1 / (1 + np.exp(-logit)))}
+
+
+def _iframe(html, alto):
+    if hasattr(st, 'iframe'):
+        st.iframe(html, height=alto)
+    else:
+        import streamlit.components.v1 as components
+        components.html(html, height=alto, scrolling=True)
 
 
 def pestana_pipeline(base, reg, clf, meta, filtro):
-    st.markdown('Un **pipeline** encadena el preprocesamiento y el modelo en un solo objeto. Se ajusta **solo con los datos de entrenamiento** '
-                '(medianas, medias, desviaciones y categorías), así la validación no tiene fuga de información, y el modelo guardado recibe los datos '
-                'tal como los escribe el usuario.')
-
-    # ---------- 1. Estructura ----------
-    st.subheader('1. Estructura del pipeline')
-    cual = st.radio('Modelo', ['Regresión logística (clasificación)', 'Regresión lineal (regresión)'], horizontal=True, key='pipe_modelo')
-    modelo = clf if cual.startswith('Regresión logística') else reg
-    from sklearn.utils import estimator_html_repr
-    html = estimator_html_repr(modelo)
-    if hasattr(st, 'iframe'):   # Streamlit reciente
-        st.iframe(html, height=470)
-    else:                       # versiones anteriores
-        import streamlit.components.v1 as components
-        components.html(html, height=470, scrolling=True)
-    st.caption('Diagrama interactivo de scikit-learn: haga clic en cada caja para ver su configuración (columnas, estrategia de imputación, escalador, '
-               'hiperparámetros del modelo).')
-    st.markdown('''
-| Bloque | Variables | Pasos | Por qué |
-|---|---|---|---|
-| **conteos** | servicios caídos, infraestructura afectada, sistemas afectados | mediana → log(1 + x) → StandardScaler | Muy asimétricos (g1 ≈ 1,8–2,5 en el Lab 2): el logaritmo acorta la cola |
-| **numericas** | IPM, índice de vulnerabilidad | mediana → StandardScaler | Lleva todas las variables a la misma escala (media 0, desviación 1) |
-| **cualitativas** | conectividad, energía, personal, sistemas, riesgo, sede, zonas, infraestructura, tipo (y departamento en la lineal) | moda → one-hot (sin la 1.ª categoría) | El modelo solo recibe números; se quita una categoría para evitar la trampa de las ficticias |
-''')
-
-    # ---------- 2. Paso a paso ----------
-    st.subheader('2. Siga una entidad por el pipeline (regresión logística)')
+    st.markdown('Antes de predecir, cada respuesta de la encuesta pasa por una **línea de ensamble** de 6 estaciones. Elija una entidad que el '
+                'modelo **nunca vio** al entrenar y siga su recorrido: con **Reproducir** avanza sola, o haga clic en cualquier estación.')
     num, cat = meta['clasificacion']['numericas'], meta['clasificacion']['cualitativas']
     te = filtro(base[base['conjunto'] == 'prueba'])
     if te.empty:
         st.warning('No hay entidades de prueba con los filtros actuales.'); return
-    etiqueta = te['razon_social'].str.strip().str.slice(0, 55) + ' · ' + te['mpio']
-    a, b = st.columns([3, 1])
-    sel = a.selectbox('Entidad del conjunto de prueba (el modelo nunca la vio al entrenar)', etiqueta.index,
-                      format_func=lambda i: etiqueta[i], key='pipe_ent')
-    real = int(te.loc[sel, 'alto_critico'])
-    b.metric('Clase real', 'Alta/Crítica' if real else 'Baja', help=f'Nivel declarado: {te.loc[sel, "nivel_afectacion_cat"]}')
-    paso = st.select_slider('Avance paso a paso', PASOS, value=PASOS[0], key='pipe_paso')
-    _franja(paso)
+    etiqueta = te['razon_social'].str.strip().str.slice(0, 60) + ' · ' + te['mpio']
+    sugeridas = te.index[te['razon_social'].str.contains('BERNARDO ARIAS', case=False, na=False)]
+    sel = st.selectbox('Entidad que recorre la línea (conjunto de prueba)', etiqueta.index, format_func=lambda i: etiqueta[i], key='pipe_ent',
+                       index=int(list(etiqueta.index).index(sugeridas[0])) if len(sugeridas) else 0)
+    datos = _datos_linea(clf, te.loc[sel], num, cat)
+    plantilla = (Path(__file__).parent / 'linea_ensamble.html').read_text(encoding='utf-8')
+    _iframe(plantilla.replace('__DATOS__', json.dumps(datos, ensure_ascii=False)), 690)
 
-    ent = te.loc[[sel], num + cat]
-    pre, mod = clf.named_steps['preprocesamiento'], clf.named_steps['modelo']
-    k = PASOS.index(paso)
-    tabla = _etapas_numericas(pre, ent)
-    cols_mostrar = ['Bloque'] + PASOS[:min(k, 3) + 1]
+    with st.expander('Ver el pipeline en lenguaje técnico (diagrama de scikit-learn)'):
+        cual = st.radio('Modelo', ['Regresión logística (clasificación)', 'Regresión lineal (regresión)'], horizontal=True, key='pipe_modelo')
+        from sklearn.utils import estimator_html_repr
+        _iframe(estimator_html_repr(clf if cual.startswith('Regresión logística') else reg), 470)
+        st.markdown('''
+| Estación | Paso técnico | Variables | Por qué |
+|---|---|---|---|
+| Rellenar casillas vacías | `SimpleImputer` (mediana / moda) | todas | El modelo no admite vacíos; los valores típicos salen solo del entrenamiento |
+| Acortar las colas | `FunctionTransformer(log1p)` | 3 conteos | Muy asimétricos (g1 ≈ 1,8–2,5 en el Lab 2) |
+| Misma regla para medir | `StandardScaler` | 5 numéricas | Media 0 y desviación 1: efectos comparables |
+| Traducir palabras a números | `OneHotEncoder(drop='first')` | 9 cualitativas → 23 columnas | El modelo solo recibe números; se quita una categoría de referencia |
+| Sumar puntos y decidir | `LogisticRegression(C=0.1, class_weight='balanced')` | 28 columnas | Probabilidad = 1 / (1 + e^(−suma)) |
+''')
 
-    if k <= 3:
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            st.markdown('**Variables numéricas**')
-            st.dataframe(tabla[cols_mostrar].style.format(precision=4, na_rep='no aplica'), width='stretch')
-        with c2:
-            st.markdown('**Variables cualitativas**')
-            st.dataframe(ent[cat].T.rename(columns={sel: 'Valor'}).rename(index=ETIQUETAS), width='stretch', height=360)
-        if k == 0:
-            st.info('Así llegan los datos desde la encuesta y el DANE. El modelo todavía no puede usarlos: hay texto, escalas distintas y conteos con colas largas.')
-        elif k == 1:
-            med = pre.named_transformers_['numericas'].named_steps['imputar'].statistics_
-            st.info('Si una variable viniera vacía, se llenaría con la **mediana** (numéricas) o la **moda** (cualitativas) del entrenamiento. '
-                    f'Por ejemplo, el IPM vacío se reemplazaría por {med[0]:.1f} %. En la base solo había 2 faltantes (estado de los sistemas y de la infraestructura).')
-        elif k == 2:
-            st.info('Los conteos se transforman con **log(1 + x)**: 0 → 0; 1 → 0,69; 3 → 1,39; 14 → 2,71. Así una entidad con 14 elementos afectados no domina el modelo.')
-        else:
-            esc = pre.named_transformers_['numericas'].named_steps['escalar']
-            x0 = float(ent['ipm'].iloc[0])
-            st.info(f'**StandardScaler:** z = (x − media) / desviación, con la media y la desviación del entrenamiento. IPM: ({x0:.1f} − {esc.mean_[0]:.2f}) / '
-                    f'{esc.scale_[0]:.2f} = **{(x0 - esc.mean_[0]) / esc.scale_[0]:.4f}**. Un valor positivo indica que está por encima del promedio.')
-    elif k == 4:
-        oh = pre.named_transformers_['cualitativas']
-        nombres = oh.named_steps['onehot'].get_feature_names_out(cat)
-        vals = oh.transform(ent[cat])[0]
-        filas = []
-        for v in cat:
-            columnas = [(n, x) for n, x in zip(nombres, vals) if n.startswith(v + '_')]
-            for n, x in columnas:
-                filas.append({'Variable': ETIQUETAS.get(v, v), 'Columna one-hot': n[len(v) + 1:], 'Valor': int(x)})
-        oht = pd.DataFrame(filas)
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            st.dataframe(oht.style.apply(lambda r: ['background-color:#d6e3f5;font-weight:bold' if r['Valor'] == 1 else '' for _ in r], axis=1),
-                         hide_index=True, width='stretch', height=420)
-        with c2:
-            st.info(f'Cada categoría se vuelve una columna 0/1. Las **{len(cat)} variables cualitativas** pasan a **{len(nombres)} columnas**; '
-                    f'esta entidad tiene **{int(vals.sum())}** en 1 (resaltadas). Si todas las columnas de una variable están en 0, la entidad está en la '
-                    '**categoría de referencia** (la primera, que se quitó).')
-            st.metric('Columnas que recibe el modelo', len(pre.get_feature_names_out()))
-    else:
-        z = pre.transform(ent)[0]
-        nombres = [n.split('__', 1)[1] for n in pre.get_feature_names_out()]
-        aporte = pd.DataFrame({'Columna': nombres, 'Aporte': z * mod.coef_[0]})
-        aporte = aporte[aporte['Aporte'].abs() > 1e-9]
-        principales = aporte.reindex(aporte['Aporte'].abs().sort_values(ascending=False).index).head(10)
-        resto = aporte['Aporte'].sum() - principales['Aporte'].sum()
-        logit = mod.intercept_[0] + aporte['Aporte'].sum()
-        prob = 1 / (1 + np.exp(-logit))
-        corto = lambda t: t if len(t) <= 32 else t[:30] + '…'
-        x = ['Intercepto', *[corto(c) for c in principales['Columna']], 'Otras columnas', 'Log-odds total']
-        y = [mod.intercept_[0], *principales['Aporte'], resto, logit]
-        fig = go.Figure(go.Waterfall(x=x, y=y, measure=['absolute'] + ['relative'] * (len(x) - 2) + ['total'],
-                                     increasing={'marker': {'color': AZUL}}, decreasing={'marker': {'color': GRIS}},
-                                     totals={'marker': {'color': NARANJA}}, text=[f'{v:+.2f}' for v in y], textposition='outside'))
-        fig.update_layout(title='Del pipeline a la predicción: aporte de cada columna (coeficiente × valor transformado)', yaxis_title='Log-odds',
-                          height=520, xaxis_tickangle=-30, margin=dict(b=170))
-        st.plotly_chart(fig, width='stretch')
-        c1, c2, c3 = st.columns(3)
-        c1.metric('Log-odds', f'{logit:.4f}')
-        c2.metric('Probabilidad = 1 / (1 + e^(−log-odds))', f'{prob:.1%}')
-        pred = int(prob >= .5)
-        c3.metric('Predicción (umbral 0,5)', 'Alta/Crítica' if pred else 'Baja',
-                  delta='acierta' if pred == real else 'se equivoca', delta_color='normal' if pred == real else 'inverse')
-
-    # ---------- 3. Escalamiento ----------
-    st.subheader('3. ¿Qué hace cada escalador?')
+    # ---------- Escalamiento ----------
+    st.subheader('¿Por qué StandardScaler? Compare los escaladores')
     from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
     ESC = {'StandardScaler': StandardScaler(), 'MinMaxScaler': MinMaxScaler(), 'RobustScaler': RobustScaler()}
     a, b, c = st.columns(3)

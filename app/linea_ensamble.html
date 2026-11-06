@@ -1,0 +1,245 @@
+<!-- Línea de ensamble del pipeline (pestaña Pipeline de la app). app/modelos.py reemplaza __DATOS__ por los datos de la entidad. -->
+<style>
+  :root { --azul:#2a78d6; --azul2:#1c5cab; --claro:#eef4fc; --borde:#d6e3f5; --gris:#8d8c86; --texto:#1a1a1a; --naranja:#eb6834; --verde:#2e9e5b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Source Sans Pro","Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--texto); background:transparent; }
+  .ficha { display:flex; align-items:center; gap:14px; padding:10px 14px; border:1px solid var(--borde); border-radius:12px; background:#fff; }
+  .avatar { width:44px; height:44px; border-radius:50%; background:var(--naranja); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; flex:none; }
+  .ficha .nom { font-weight:700; font-size:16px; }
+  .ficha .sub { color:#5c5b56; font-size:13px; }
+  .ficha .real { margin-left:auto; text-align:right; font-size:13px; color:#5c5b56; }
+  .ficha .real b { display:block; font-size:16px; color:var(--texto); }
+
+  .pista { position:relative; margin:18px 4px 6px; height:118px; }
+  .linea { position:absolute; left:7%; right:7%; top:34px; height:4px; background:var(--borde); border-radius:2px; }
+  .avance { position:absolute; left:7%; top:34px; height:4px; background:var(--azul); border-radius:2px; transition:width .7s ease; }
+  .estaciones { position:absolute; inset:0; display:grid; grid-template-columns:repeat(6,1fr); }
+  .est { display:flex; flex-direction:column; align-items:center; cursor:pointer; user-select:none; }
+  .est .num { width:36px; height:36px; margin-top:18px; border-radius:50%; background:#fff; border:3px solid var(--borde); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--gris); transition:all .3s; z-index:1; }
+  .est .tit { margin-top:8px; font-size:13px; text-align:center; line-height:1.2; color:#5c5b56; max-width:140px; transition:color .3s; }
+  .est.hecha .num { border-color:var(--azul); color:var(--azul); }
+  .est.activa .num { background:var(--azul); border-color:var(--azul); color:#fff; transform:scale(1.18); }
+  .est.activa .tit { color:var(--texto); font-weight:700; }
+  .token { position:absolute; top:0; width:30px; height:30px; margin-left:-15px; border-radius:50%; background:var(--naranja); color:#fff; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.25); transition:left .7s ease; z-index:2; }
+
+  .controles { display:flex; gap:8px; justify-content:center; margin:2px 0 12px; }
+  button { font:inherit; font-size:14px; padding:6px 14px; border-radius:8px; border:1px solid var(--borde); background:#fff; cursor:pointer; }
+  button:hover { border-color:var(--azul); color:var(--azul); }
+  button.prim { background:var(--azul); color:#fff; border-color:var(--azul); }
+  button.prim:hover { background:var(--azul2); color:#fff; }
+
+  .panel { display:grid; grid-template-columns:minmax(240px,32%) 1fr; gap:16px; border:1px solid var(--borde); border-radius:12px; padding:16px; background:#fff; min-height:380px; }
+  .explica h3 { margin:0 0 6px; font-size:19px; }
+  .explica .analogia { background:var(--claro); border-radius:10px; padding:10px 12px; font-size:15px; line-height:1.4; margin:8px 0; }
+  .explica .porque { font-size:14px; color:#3d3c38; line-height:1.4; }
+  .explica .tecnico { margin-top:10px; font-size:12px; color:var(--gris); }
+  .vista { overflow:auto; max-height:430px; }
+  .vista h4 { margin:2px 0 8px; font-size:14px; color:#5c5b56; font-weight:600; }
+
+  .chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:8px; }
+  .chip { border:1px solid var(--borde); border-radius:10px; padding:7px 10px; font-size:13px; background:#fff; }
+  .chip .k { color:#5c5b56; font-size:12px; }
+  .chip .v { font-weight:700; font-size:14px; }
+  .chip.ok::after { content:"✓ completo"; float:right; color:var(--verde); font-size:11px; font-weight:600; }
+  .chip.rell { border-color:var(--naranja); background:#fff4ee; }
+  .chip.rell::after { content:"rellenado"; float:right; color:var(--naranja); font-size:11px; font-weight:700; }
+
+  .fila { display:grid; grid-template-columns:190px 1fr 150px; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
+  .fila .lab { color:#3d3c38; }
+  .fila .res { font-weight:700; }
+  .regla { position:relative; height:30px; }
+  .regla .eje { position:absolute; left:0; right:0; top:14px; height:2px; background:var(--borde); }
+  .regla .cero { position:absolute; left:50%; top:4px; height:22px; width:2px; background:var(--gris); }
+  .regla .cero::after { content:"promedio"; position:absolute; top:22px; left:-22px; font-size:10px; color:var(--gris); }
+  .regla .punto { position:absolute; top:6px; width:18px; height:18px; margin-left:-9px; border-radius:50%; background:var(--naranja); border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .8s ease; }
+
+  .var1h { margin:7px 0; }
+  .var1h .lab { font-size:12px; color:#5c5b56; margin-bottom:3px; }
+  .pills { display:flex; flex-wrap:wrap; gap:5px; }
+  .pill { font-size:11.5px; padding:3px 8px; border-radius:999px; border:1px solid var(--borde); color:#77766f; background:#fafaf8; max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pill b { font-family:ui-monospace,monospace; margin-right:4px; }
+  .pill.on { background:var(--azul); color:#fff; border-color:var(--azul); }
+  .pill.ref { border-style:dashed; }
+
+  .barras .b { display:grid; grid-template-columns:230px 1fr 60px; align-items:center; gap:8px; margin:5px 0; font-size:13px; }
+  .barras .pista2 { position:relative; height:16px; background:#f4f4f2; border-radius:4px; }
+  .barras .mitad { position:absolute; left:50%; top:-3px; bottom:-3px; width:1px; background:#9a9890; }
+  .barras .bar { position:absolute; top:2px; height:12px; border-radius:3px; width:0; transition:width .6s ease, left .6s ease; }
+  .resultado { display:flex; align-items:center; gap:16px; margin-top:12px; padding:10px 12px; border-radius:10px; background:var(--claro); }
+  .resultado .p { font-size:30px; font-weight:800; }
+  .resultado .ver { font-size:15px; font-weight:700; }
+  .acierta { color:var(--verde); } .falla { color:#c0392b; }
+  .nota { font-size:12px; color:var(--gris); margin-top:6px; }
+</style>
+
+<div class="ficha">
+  <div class="avatar" id="av"></div>
+  <div><div class="nom" id="nom"></div><div class="sub" id="sub"></div></div>
+  <div class="real">Lo que declaró en la encuesta<b id="real"></b></div>
+</div>
+
+<div class="pista">
+  <div class="linea"></div><div class="avance" id="avance"></div>
+  <div class="estaciones" id="estaciones"></div>
+  <div class="token" id="token"></div>
+</div>
+<div class="controles">
+  <button id="ant">◀ Anterior</button>
+  <button class="prim" id="play">▶ Reproducir el recorrido</button>
+  <button id="sig">Siguiente ▶</button>
+</div>
+
+<div class="panel">
+  <div class="explica" id="explica"></div>
+  <div class="vista" id="vista"></div>
+</div>
+
+<script>
+const D = __DATOS__;
+const fmt = (v, d=2) => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('es-CO', {minimumFractionDigits:d, maximumFractionDigits:d});
+const ESTACIONES = [
+  {t:'Llega el formulario', h:'1. Llega el formulario',
+   a:'La entidad entrega sus respuestas: algunas son números (cuántos servicios se cayeron, la pobreza del municipio) y otras son palabras ("Sin conectividad", "Parcialmente").',
+   p:'Así no le sirven al modelo: mezcla texto y números, y cada número está en una escala distinta (porcentajes, conteos de 0 a 14, un índice de 0 a 5).',
+   tec:'Entrada del pipeline: 14 variables (5 numéricas y 9 cualitativas).'},
+  {t:'Rellenar casillas vacías', h:'2. Rellenar casillas vacías',
+   a:'Como un profesor que, si a un estudiante le falta una nota, le pone la nota típica del curso: si falta un número se usa la mediana y si falta una respuesta, la más común.',
+   p:'Un modelo no puede trabajar con casillas vacías. Los valores típicos se calculan solo con las entidades de entrenamiento.',
+   tec:'SimpleImputer: mediana (numéricas) y moda (cualitativas).'},
+  {t:'Acortar las colas', h:'3. Acortar las colas (logaritmo)',
+   a:'Tener 14 elementos dañados no es 14 veces peor que tener 1. El logaritmo "aprieta" los números grandes: 0 sigue siendo 0, 1 pasa a 0,69, 3 a 1,39 y 14 a 2,71.',
+   p:'En el Lab 2 los conteos tenían colas muy largas. Sin este paso, unas pocas entidades con muchos daños dominarían el modelo.',
+   tec:'FunctionTransformer(log1p) = log(1 + x), solo para los 3 conteos.'},
+  {t:'Misma regla para medir', h:'4. Poner todo en la misma regla',
+   a:'Como pasar pesos y dólares a una misma moneda. Cada número se vuelve "cuántos pasos está por encima o por debajo del promedio": 0 es el promedio, +1 un paso arriba, −1 un paso abajo.',
+   p:'Así el IPM (de 11 a 91) y los conteos (de 0 a 14) pesan en igualdad de condiciones y se pueden comparar sus efectos.',
+   tec:'StandardScaler: z = (x − media) / desviación estándar del entrenamiento.'},
+  {t:'Traducir palabras a números', h:'5. Traducir palabras a números',
+   a:'Cada pregunta se convierte en un tablero de interruptores, uno por cada respuesta posible. Se enciende (1) el de la respuesta de la entidad y los demás quedan apagados (0).',
+   p:'El modelo solo entiende números. La primera respuesta de cada pregunta (borde punteado) es la referencia: si todos los interruptores están apagados, la entidad respondió esa.',
+   tec:'OneHotEncoder(drop="first"): 9 variables → 23 columnas. Total que entra al modelo: 28 columnas.'},
+  {t:'Sumar puntos y decidir', h:'6. Sumar puntos y decidir',
+   a:'Cada interruptor y cada número suma o resta puntos de riesgo, según lo que el modelo aprendió de 302 entidades. La suma se convierte en una probabilidad entre 0 % y 100 %.',
+   p:'Si la probabilidad pasa de 50 %, el modelo dice "afectación Alta o Crítica". Azul = sube el riesgo, gris = lo baja.',
+   tec:'LogisticRegression: probabilidad = 1 / (1 + e^(−suma de puntos)).'}
+];
+let paso = 0, timer = null;
+
+function iniciales(t){ return t.split(/\s+/).filter(w => w.length > 2).slice(0,2).map(w => w[0]).join('').toUpperCase() || 'E'; }
+document.getElementById('av').textContent = iniciales(D.nombre);
+document.getElementById('token').textContent = iniciales(D.nombre);
+document.getElementById('nom').textContent = D.nombre;
+document.getElementById('sub').textContent = D.lugar;
+document.getElementById('real').textContent = D.nivel + (D.real ? ' (clase Alta/Crítica)' : ' (clase Baja)');
+
+const est = document.getElementById('estaciones');
+ESTACIONES.forEach((e, i) => {
+  const d = document.createElement('div'); d.className = 'est'; d.onclick = () => { parar(); ir(i); };
+  d.innerHTML = `<div class="num">${i + 1}</div><div class="tit">${e.t}</div>`; est.appendChild(d);
+});
+
+function vistaChips(rellenar){
+  let h = '<h4>Números</h4><div class="chips">';
+  D.numericas.forEach(v => {
+    const cls = rellenar ? (v.faltaba ? 'rell' : 'ok') : '';
+    h += `<div class="chip ${cls}"><div class="k">${v.lab}</div><div class="v">${v.faltaba && rellenar ? fmt(v.imputado) : (v.orig === null ? 'vacío' : fmt(v.orig, v.dec))}</div></div>`;
+  });
+  h += '</div><h4 style="margin-top:14px">Respuestas en palabras</h4><div class="chips">';
+  D.cualitativas.forEach(v => {
+    const cls = rellenar ? (v.faltaba ? 'rell' : 'ok') : '';
+    h += `<div class="chip ${cls}"><div class="k">${v.lab}</div><div class="v">${v.faltaba && rellenar ? v.imputado : (v.orig === null ? 'vacío' : v.orig)}</div></div>`;
+  });
+  h += '</div>';
+  if (rellenar) h += `<div class="nota">${D.n_faltantes ? 'A esta entidad le faltaban ' + D.n_faltantes + ' dato(s); se rellenaron con el valor típico del entrenamiento.' : 'A esta entidad no le faltaba ningún dato, así que pasa igual. En toda la base solo había 2 casillas vacías.'}</div>`;
+  return h;
+}
+
+function vistaLog(){
+  const W = 580, X0 = 72, X1 = W - 20, vals = [0, 1, 2, 3, 5, 8, 14], M = Math.log1p(14);
+  const xl = v => X0 + (X1 - X0) * v / 14, xg = v => X0 + (X1 - X0) * Math.log1p(v) / M;
+  let s = `<svg viewBox="0 0 ${W} 150" width="100%" style="max-width:${W}px">`;
+  s += `<text x="0" y="28" font-size="12" fill="#5c5b56">Antes</text><line x1="${X0}" y1="24" x2="${X1}" y2="24" stroke="#d6e3f5" stroke-width="3"/>`;
+  s += `<text x="0" y="118" font-size="12" fill="#5c5b56">Después</text><line x1="${X0}" y1="114" x2="${X1}" y2="114" stroke="#d6e3f5" stroke-width="3"/>`;
+  vals.forEach(v => {
+    s += `<line x1="${xl(v)}" y1="28" x2="${xg(v)}" y2="110" stroke="#c9c8c1" stroke-dasharray="3 3"/>`;
+    s += `<circle cx="${xl(v)}" cy="24" r="4" fill="#9a9890"/><text x="${xl(v)}" y="14" font-size="11" text-anchor="middle" fill="#5c5b56">${v}</text>`;
+    s += `<circle cx="${xg(v)}" cy="114" r="4" fill="#9a9890"/><text x="${xg(v)}" y="134" font-size="11" text-anchor="middle" fill="#5c5b56">${fmt(Math.log1p(v))}</text>`;
+  });
+  s += '</svg>';
+  let h = '<h4>Cómo se aprietan los números grandes</h4>' + s + '<h4 style="margin-top:10px">Los conteos de esta entidad</h4>';
+  D.conteos.forEach(v => { h += `<div class="fila"><div class="lab">${v.lab}</div><div>${fmt(v.antes, 0)} → <b>${fmt(v.despues)}</b></div><div></div></div>`; });
+  return h;
+}
+
+function vistaRegla(){
+  let h = '<h4>Dónde queda la entidad frente al promedio de las 302 entidades de entrenamiento</h4>';
+  D.escalado.forEach(v => {
+    const z = Math.max(-3, Math.min(3, v.z)), pos = 50 + z / 3 * 50;
+    const txt = Math.abs(v.z) < .25 ? 'cerca del promedio' : (v.z > 0 ? 'por encima del promedio' : 'por debajo del promedio');
+    h += `<div class="fila"><div class="lab">${v.lab}<br><span style="color:#8d8c86">valor: ${fmt(v.entrada, v.dec)}</span></div>
+          <div class="regla"><div class="eje"></div><div class="cero"></div><div class="punto" data-left="${pos}" style="left:50%"></div></div>
+          <div><span class="res">${v.z >= 0 ? '+' : ''}${fmt(v.z)}</span><br><span style="color:#5c5b56">${txt}</span></div></div>`;
+  });
+  if (D.ejemplo_ipm) h += `<div class="nota">Ejemplo con el IPM: (${fmt(D.ejemplo_ipm.x,1)} − ${fmt(D.ejemplo_ipm.media)}) / ${fmt(D.ejemplo_ipm.sd)} = ${fmt(D.ejemplo_ipm.z)}</div>`;
+  return h;
+}
+
+function vistaOnehot(){
+  let h = `<h4>${D.cualitativas.length} preguntas → ${D.n_onehot} interruptores (encendidos: ${D.cualitativas.length - D.n_ref})</h4>`;
+  D.onehot.forEach(v => {
+    h += `<div class="var1h"><div class="lab">${v.lab}</div><div class="pills">`;
+    v.opciones.forEach(o => { h += `<span class="pill ${o.on ? 'on' : ''} ${o.ref ? 'ref' : ''}" title="${o.nombre}${o.ref ? ' (referencia: no tiene columna propia)' : ''}"><b>${o.ref ? 'ref' : (o.on ? '1' : '0')}</b>${o.nombre}</span>`; });
+    h += '</div></div>';
+  });
+  return h;
+}
+
+function vistaPuntos(){
+  const M = Math.max(...D.aportes.map(a => Math.abs(a.v)), 0.5);
+  let h = '<h4>Puntos de riesgo que aporta cada dato (los 8 que más pesan)</h4><div class="barras">';
+  D.aportes.forEach(a => {
+    const w = Math.abs(a.v) / M * 50, left = a.v >= 0 ? 50 : 50 - w;
+    h += `<div class="b"><div>${a.lab}</div><div class="pista2"><div class="mitad"></div><div class="bar" data-w="${w}" data-l="${left}" style="left:50%;background:${a.v >= 0 ? 'var(--azul)' : '#a3a29b'}"></div></div><div style="text-align:right;font-weight:700">${a.v >= 0 ? '+' : ''}${fmt(a.v)}</div></div>`;
+  });
+  h += `</div><div class="nota">Punto de partida del modelo: ${fmt(D.intercepto)} · resto de columnas: ${D.resto >= 0 ? '+' : ''}${fmt(D.resto)} · suma total: <b>${fmt(D.logit)}</b></div>`;
+  const pr = D.prob * 100, pred = D.prob >= .5, ok = (pred ? 1 : 0) === D.real;
+  // curva S
+  const W = 220, H = 90, sx = x => (x + 6) / 12 * W, sy = p => H - p * H;
+  let path = ''; for (let x = -6; x <= 6.01; x += .25) path += (path ? 'L' : 'M') + sx(x).toFixed(1) + ',' + sy(1 / (1 + Math.exp(-x))).toFixed(1);
+  const lx = Math.max(-6, Math.min(6, D.logit));
+  const curva = `<svg viewBox="-4 -6 ${W + 8} ${H + 22}" width="${W}"><line x1="0" y1="${sy(.5)}" x2="${W}" y2="${sy(.5)}" stroke="#c9c8c1" stroke-dasharray="3 3"/>
+      <text x="${W}" y="${sy(.5) - 4}" font-size="10" text-anchor="end" fill="#8d8c86">50 %</text>
+      <path d="${path}" fill="none" stroke="#2a78d6" stroke-width="2.5"/><circle cx="${sx(lx)}" cy="${sy(D.prob)}" r="7" fill="#eb6834" stroke="#fff" stroke-width="2"/>
+      <text x="${W / 2}" y="${H + 14}" font-size="10" text-anchor="middle" fill="#8d8c86">suma de puntos → probabilidad</text></svg>`;
+  h += `<div class="resultado">${curva}<div><div class="p">${fmt(pr, 1)} %</div>
+        <div class="ver">${pred ? 'Afectación ALTA o CRÍTICA' : 'Afectación BAJA'}</div>
+        <div class="${ok ? 'acierta' : 'falla'}" style="font-weight:700">${ok ? '✓ Acierta: coincide con lo que declaró' : '✗ Se equivoca: declaró ' + D.nivel}</div></div></div>`;
+  return h;
+}
+
+function ir(i){
+  paso = Math.max(0, Math.min(5, i));
+  const e = ESTACIONES[paso];
+  document.querySelectorAll('.est').forEach((d, k) => { d.classList.toggle('activa', k === paso); d.classList.toggle('hecha', k < paso); });
+  const centro = k => (100 / 12) * (2 * k + 1);
+  document.getElementById('token').style.left = centro(paso) + '%';
+  document.getElementById('avance').style.width = Math.max(0, centro(paso) - 7) + '%';
+  document.getElementById('explica').innerHTML = `<h3>${e.h}</h3><div class="analogia">${e.a}</div><div class="porque"><b>¿Por qué?</b> ${e.p}</div><div class="tecnico">En lenguaje técnico: ${e.tec}</div>`;
+  const vista = document.getElementById('vista');
+  vista.innerHTML = [() => vistaChips(false), () => vistaChips(true), vistaLog, vistaRegla, vistaOnehot, vistaPuntos][paso]();
+  requestAnimationFrame(() => setTimeout(() => {
+    vista.querySelectorAll('.punto').forEach(p => p.style.left = p.dataset.left + '%');
+    vista.querySelectorAll('.bar').forEach((b, k) => { b.style.transitionDelay = (k * 0.12) + 's'; b.style.left = b.dataset.l + '%'; b.style.width = b.dataset.w + '%'; });
+  }, 60));
+}
+function parar(){ if (timer) { clearInterval(timer); timer = null; } document.getElementById('play').textContent = '▶ Reproducir el recorrido'; }
+document.getElementById('ant').onclick = () => { parar(); ir(paso - 1); };
+document.getElementById('sig').onclick = () => { parar(); ir(paso + 1); };
+document.getElementById('play').onclick = () => {
+  if (timer) { parar(); return; }
+  if (paso === 5) ir(0);
+  document.getElementById('play').textContent = '❚❚ Pausar';
+  timer = setInterval(() => { if (paso >= 5) { parar(); return; } ir(paso + 1); }, 4500);
+};
+ir(0);
+</script>

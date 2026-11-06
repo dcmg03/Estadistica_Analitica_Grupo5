@@ -20,7 +20,9 @@ Estadistica_Analitica_Grupo5/
 │   ├── 02_Lab2_Estadistica_Asociacion.ipynb      ← Lab 2: descriptivas, forma, correlación, χ², ANOVA/Kruskal-Wallis
 │   └── 03_Lab3_Modelacion.ipynb                  ← Lab 3: hipótesis, pipelines, regresión lineal y logística, evaluación
 ├── app/
-│   ├── app.py                ← dashboard en Streamlit (entregable de los Labs 2 y 3)
+│   ├── app.py                ← app ejecutiva en Streamlit: navegación y anexo del Lab 2
+│   ├── ejecutivo.py          ← resumen ejecutivo, priorización y conclusiones (estilo)
+│   ├── linea_ensamble.html   ← animación del pipeline paso a paso
 │   ├── estadistica.py        ← funciones estadísticas del dashboard
 │   └── modelos.py            ← pestañas del Lab 3: Pipeline (paso a paso), modelos, predicciones y evaluación
 ├── models/                   ← modelos entrenados por el notebook 03 (se regeneran con Run All)

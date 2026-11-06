@@ -13,8 +13,9 @@ import streamlit as st
 
 from estadistica import medidas, forma_texto, atipicos_iqr, correlaciones, independencia, comparar_grupos
 import modelos
+import ejecutivo
 
-st.set_page_config(page_title='Afectación digital · Terremoto 2026', layout='wide')
+st.set_page_config(page_title='Afectación digital · Terremoto 2026', layout='wide', initial_sidebar_state='expanded')
 
 
 def f4(tabla):
@@ -145,191 +146,194 @@ if len(df) < 10:
     st.warning('Hay muy pocas entidades con los filtros actuales. Amplíe la selección.')
     st.stop()
 
-st.title('Afectación digital de entidades públicas tras el terremoto del 10 de agosto de 2026')
-st.caption('Laboratorio 3 · Proyecto final de modelación (incluye la exploración e hipótesis del Laboratorio 2) · Resultados redondeados '
-           'a 4 decimales · Base: 408 entidades con IPM del DANE (403 sin duplicados en los modelos)')
-
-t0, t1, t2, t3, t4, t5, t6, t9, t7, t8 = st.tabs(['Proyecto', 'Resumen', 'Univariado', 'Correlación', 'Independencia (χ²)',
-                                                  'ANOVA vs Kruskal-Wallis', 'Foco Chocó', 'Pipeline', 'Modelo: regresión lineal',
-                                                  'Modelo: regresión logística'])
-
-
 def filtro_modelos(t):
     """Aplica los filtros de la barra lateral a la base de modelación."""
     t = t[t['departamento'].isin(deps) & t['tipo_entidad'].str.strip().isin(tipos)]
     return t[t['departamento'] != 'RISARALDA'] if sin_ris else t
 
 
-# ---------------- Proyecto ----------------
-with t0:
-    st.markdown('''
-**Contexto.** El 10 de agosto de 2026 un sismo de magnitud 7,4 con epicentro en San José del Palmar (Chocó) afectó a Risaralda, Valle del Cauca,
-Caldas, Chocó y Quindío. MinTIC encuestó a 409 entidades públicas sobre su conectividad, energía, sistemas de información y personal TIC. Cruzamos
-la encuesta con el índice de pobreza multidimensional (IPM) municipal del DANE.
 
-**Objetivo.** Ayudar a MinTIC a **priorizar la atención** de las entidades afectadas con un criterio territorial, mediante dos modelos:
+def pagina_anexo():
+    ejecutivo.encabezado('Anexo · Laboratorio 2', 'Exploración de datos e hipótesis de asociación',
+                         'Lo que ya socializamos en el Lab 2: descriptivas, correlación, independencia, ANOVA frente a Kruskal-Wallis y el foco en el Chocó. '
+                         'Base de 408 entidades con IPM del DANE; resultados redondeados a 4 decimales.')
+    a1, a2, a3, a4, a5, a6 = st.tabs(['Resumen', 'Univariado', 'Correlación', 'Independencia (χ²)', 'ANOVA vs Kruskal-Wallis', 'Foco Chocó'])
+    # ---------------- Resumen ----------------
+    with a1:
+        c1, c2, c3, c4 = st.columns(4)
+        pct_critico = (df['nivel_afectacion_cat'] == 'Crítico').mean() * 100
+        pct_sinconec = (df['estado_conectividad'] == 'Sin conectividad.').mean() * 100
+        c1.metric('Entidades', f'{len(df)}')
+        c2.metric('En nivel Crítico', f'{pct_critico:.1f} %')
+        c3.metric('Sin conectividad', f'{pct_sinconec:.1f} %')
+        c4.metric('IPM mediano del municipio', f'{df["ipm"].median():.1f} %')
+        a, b = st.columns(2)
+        vc = df['nivel_afectacion_cat'].value_counts().reindex(ORD_OBJ).fillna(0).reset_index()
+        vc.columns = ['Nivel', 'Entidades']
+        fig = px.bar(vc, x='Nivel', y='Entidades', color='Nivel', color_discrete_sequence=SEQ, text='Entidades',
+                     title='Variable objetivo: nivel de afectación')
+        fig.update_layout(showlegend=False, xaxis_title=None)
+        a.plotly_chart(fig, width='stretch')
+        ct = (pd.crosstab(df['departamento'], df['nivel_afectacion_cat'], normalize='index') * 100).reindex(columns=ORD_OBJ).fillna(0)
+        fig = px.bar(ct.reset_index().melt(id_vars='departamento', var_name='Nivel', value_name='%'), y='departamento', x='%', color='Nivel',
+                     orientation='h', color_discrete_sequence=SEQ, category_orders={'Nivel': ORD_OBJ},
+                     title='Nivel de afectación por departamento (%)')
+        fig.update_layout(yaxis_title=None, legend_title=None)
+        b.plotly_chart(fig, width='stretch')
+        st.info('**Hallazgo clave:** la clase "Crítico" se concentra en colegios de Risaralda con respuestas casi idénticas. '
+                'Active el filtro de la barra lateral para ver cómo cambia la distribución sin ese bloque.')
 
-| Tarea | Pregunta | Variable respuesta | Modelo | Métricas |
-|---|---|---|---|---|
-| Clasificación | ¿La entidad está en afectación Alta o Crítica? | `alto_critico` (1/0) | Regresión logística | Accuracy, Precision, Recall, F1 (y AUC-ROC) |
-| Regresión | ¿Cuánta fragilidad digital se espera según su municipio y su tipo? | Índice de vulnerabilidad (0-5) | Regresión lineal | MAE, RMSE, MAPE, R² |
-
-**Proceso** (notebooks del repositorio): limpieza y EDA (Lab 1) → estadística descriptiva e hipótesis de asociación (Lab 2) → limpieza para
-modelar, pruebas de hipótesis, pipelines con escalamiento, entrenamiento, evaluación y validación de supuestos (Lab 3).
-
-**Cómo usar esta aplicación.** Los **filtros de la barra lateral** (departamento, tipo de entidad, excluir Risaralda) aplican a todas las
-pestañas, incluidas las métricas de los modelos. Las pestañas *Resumen* a *Foco Chocó* son la exploración; las dos últimas muestran la
-evaluación de cada modelo y permiten **hacer predicciones** con sus propios datos. La pestaña *Pipeline* muestra, paso a paso, cómo se
-transforma una entidad desde la encuesta hasta la predicción.
-''')
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric('Logística · F1 (prueba)', '0,9000')
-    c2.metric('Logística · F1 sin Risaralda (CV)', '0,5603')
-    c3.metric('Lineal · R² (CV repetida)', '0,2318')
-    c4.metric('Lineal · MAE (CV repetida)', '0,7132')
-    st.warning('**Advertencia principal:** 145 de las 160 entidades en "Crítico" son colegios de Risaralda con respuestas casi idénticas. '
-               'El clasificador aprende en parte ese patrón: fuera de Risaralda su desempeño es bastante menor. Hay que validar ese bloque con MinTIC.')
-
-# ---------------- Resumen ----------------
-with t1:
-    c1, c2, c3, c4 = st.columns(4)
-    pct_critico = (df['nivel_afectacion_cat'] == 'Crítico').mean() * 100
-    pct_sinconec = (df['estado_conectividad'] == 'Sin conectividad.').mean() * 100
-    c1.metric('Entidades', f'{len(df)}')
-    c2.metric('En nivel Crítico', f'{pct_critico:.1f} %')
-    c3.metric('Sin conectividad', f'{pct_sinconec:.1f} %')
-    c4.metric('IPM mediano del municipio', f'{df["ipm"].median():.1f} %')
-    a, b = st.columns(2)
-    vc = df['nivel_afectacion_cat'].value_counts().reindex(ORD_OBJ).fillna(0).reset_index()
-    vc.columns = ['Nivel', 'Entidades']
-    fig = px.bar(vc, x='Nivel', y='Entidades', color='Nivel', color_discrete_sequence=SEQ, text='Entidades',
-                 title='Variable objetivo: nivel de afectación')
-    fig.update_layout(showlegend=False, xaxis_title=None)
-    a.plotly_chart(fig, width='stretch')
-    ct = (pd.crosstab(df['departamento'], df['nivel_afectacion_cat'], normalize='index') * 100).reindex(columns=ORD_OBJ).fillna(0)
-    fig = px.bar(ct.reset_index().melt(id_vars='departamento', var_name='Nivel', value_name='%'), y='departamento', x='%', color='Nivel',
-                 orientation='h', color_discrete_sequence=SEQ, category_orders={'Nivel': ORD_OBJ},
-                 title='Nivel de afectación por departamento (%)')
-    fig.update_layout(yaxis_title=None, legend_title=None)
-    b.plotly_chart(fig, width='stretch')
-    st.info('**Hallazgo clave:** la clase "Crítico" se concentra en colegios de Risaralda con respuestas casi idénticas. '
-            'Active el filtro de la barra lateral para ver cómo cambia la distribución sin ese bloque.')
-
-# ---------------- Univariado ----------------
-with t2:
-    v = st.selectbox('Variable cuantitativa', list(NUM), format_func=NUM.get, key='uni')
-    s = df[v].dropna()
-    a, b = st.columns([1, 2])
-    a.dataframe(f4(medidas(s)), width='stretch', height=700)
-    with b:
-        log = st.checkbox('Escala logarítmica en el eje x', value=(v == 'duracion_min'))
-        fig = histograma(df, v, log)
+    # ---------------- Univariado ----------------
+    with a2:
+        v = st.selectbox('Variable cuantitativa', list(NUM), format_func=NUM.get, key='uni')
+        s = df[v].dropna()
+        a, b = st.columns([1, 2])
+        a.dataframe(f4(medidas(s)), width='stretch', height=700)
+        with b:
+            log = st.checkbox('Escala logarítmica en el eje x', value=(v == 'duracion_min'))
+            fig = histograma(df, v, log)
+            st.plotly_chart(fig, width='stretch')
+            st.caption('Línea naranja: media · línea punteada: mediana · Pase el mouse por una barra o un punto para ver de qué municipios son esas entidades.')
+            st.markdown(f'**Forma:** {forma_texto(s)}')
+            st.markdown('**Atípicos por el criterio IQR (1,5 × IQR):**')
+            st.dataframe(f4(pd.DataFrame([atipicos_iqr(s)])), width='stretch', hide_index=True)
+        st.subheader('Variables cualitativas')
+        vc_ = st.selectbox('Variable cualitativa', list(CAT), format_func=CAT.get, key='unicat')
+        f = df[vc_].astype(str).value_counts().reset_index(); f.columns = ['Categoría', 'Frecuencia']
+        f['%'] = (f['Frecuencia'] / f['Frecuencia'].sum() * 100).round(4)
+        fig = px.bar(f.sort_values('Frecuencia'), x='Frecuencia', y='Categoría', orientation='h', text='Frecuencia',
+                     color_discrete_sequence=[AZUL], title=CAT[vc_])
         st.plotly_chart(fig, width='stretch')
-        st.caption('Línea naranja: media · línea punteada: mediana · Pase el mouse por una barra o un punto para ver de qué municipios son esas entidades.')
-        st.markdown(f'**Forma:** {forma_texto(s)}')
-        st.markdown('**Atípicos por el criterio IQR (1,5 × IQR):**')
-        st.dataframe(f4(pd.DataFrame([atipicos_iqr(s)])), width='stretch', hide_index=True)
-    st.subheader('Variables cualitativas')
-    vc_ = st.selectbox('Variable cualitativa', list(CAT), format_func=CAT.get, key='unicat')
-    f = df[vc_].astype(str).value_counts().reset_index(); f.columns = ['Categoría', 'Frecuencia']
-    f['%'] = (f['Frecuencia'] / f['Frecuencia'].sum() * 100).round(4)
-    fig = px.bar(f.sort_values('Frecuencia'), x='Frecuencia', y='Categoría', orientation='h', text='Frecuencia',
-                 color_discrete_sequence=[AZUL], title=CAT[vc_])
-    st.plotly_chart(fig, width='stretch')
 
-# ---------------- Correlación ----------------
-with t3:
-    nivel = st.radio('Nivel de análisis', ['Municipal (recomendado para variables del territorio)', 'Entidad'], horizontal=True)
-    if nivel.startswith('Municipal'):
-        mm = mun[mun['departamento'].isin(deps)]
-        if sin_ris:
-            mm = mm[mm['departamento'] != 'RISARALDA']
-        opciones, datos, nombres = list(MUN), mm, MUN
-        st.caption(f'{len(mm)} municipios. Las proporciones se calculan con las entidades de cada municipio que respondieron la encuesta.')
-    else:
-        opciones, datos, nombres = list(NUM), df, NUM
-    a, b = st.columns(2)
-    x = a.selectbox('Variable X', opciones, format_func=nombres.get, index=0)
-    y = b.selectbox('Variable Y', [o for o in opciones if o != x], format_func=nombres.get, index=0)
-    c1, c2 = st.columns([2, 1])
-    datos = datos.assign(Grupo=np.where(datos['departamento'] == 'CHOCÓ', 'Chocó', 'Otros departamentos'))
-    fig = px.scatter(datos, x=x, y=y, color='Grupo', color_discrete_map={'Chocó': AZUL, 'Otros departamentos': GRIS},
-                     labels={x: nombres[x], y: nombres[y]}, title=f'{nombres[y]} vs {nombres[x]}', opacity=.8,
-                     hover_name='mpio')
-    c1.plotly_chart(fig, width='stretch')
-    with c2:
-        st.dataframe(f4(correlaciones(datos[x], datos[y])), width='stretch')
-        st.markdown('**Cómo leerlo:** Pearson mide relación **lineal** y es sensible a atípicos; Spearman y Kendall usan **rangos** y '
-                    'detectan relaciones monótonas aunque no sean lineales. Si Pearson y Spearman difieren mucho, revise atípicos o no linealidad.')
+    # ---------------- Correlación ----------------
+    with a3:
+        nivel = st.radio('Nivel de análisis', ['Municipal (recomendado para variables del territorio)', 'Entidad'], horizontal=True)
+        if nivel.startswith('Municipal'):
+            mm = mun[mun['departamento'].isin(deps)]
+            if sin_ris:
+                mm = mm[mm['departamento'] != 'RISARALDA']
+            opciones, datos, nombres = list(MUN), mm, MUN
+            st.caption(f'{len(mm)} municipios. Las proporciones se calculan con las entidades de cada municipio que respondieron la encuesta.')
+        else:
+            opciones, datos, nombres = list(NUM), df, NUM
+        a, b = st.columns(2)
+        x = a.selectbox('Variable X', opciones, format_func=nombres.get, index=0)
+        y = b.selectbox('Variable Y', [o for o in opciones if o != x], format_func=nombres.get, index=0)
+        c1, c2 = st.columns([2, 1])
+        datos = datos.assign(Grupo=np.where(datos['departamento'] == 'CHOCÓ', 'Chocó', 'Otros departamentos'))
+        fig = px.scatter(datos, x=x, y=y, color='Grupo', color_discrete_map={'Chocó': AZUL, 'Otros departamentos': GRIS},
+                         labels={x: nombres[x], y: nombres[y]}, title=f'{nombres[y]} vs {nombres[x]}', opacity=.8,
+                         hover_name='mpio')
+        c1.plotly_chart(fig, width='stretch')
+        with c2:
+            st.dataframe(f4(correlaciones(datos[x], datos[y])), width='stretch')
+            st.markdown('**Cómo leerlo:** Pearson mide relación **lineal** y es sensible a atípicos; Spearman y Kendall usan **rangos** y '
+                        'detectan relaciones monótonas aunque no sean lineales. Si Pearson y Spearman difieren mucho, revise atípicos o no linealidad.')
 
-# ---------------- Independencia ----------------
-with t4:
-    a, b = st.columns(2)
-    v1 = a.selectbox('Variable 1', list(CAT), format_func=CAT.get, index=list(CAT).index('estado_conectividad'))
-    v2 = b.selectbox('Variable 2', [c for c in CAT if c != v1], format_func=CAT.get, index=0)
-    t = df[[v1, v2]].dropna()
-    obs, esp, res = independencia(t[v1].astype(str), t[v2].astype(str))
-    obs, esp = ordenar(obs, v1, v2), ordenar(esp, v1, v2)
-    st.markdown('**Frecuencias observadas**'); st.dataframe(obs.assign(Total=obs.sum(axis=1)), width='stretch')
-    st.markdown('**Frecuencias esperadas bajo independencia**'); st.dataframe(f4(esp), width='stretch')
-    st.dataframe(f4(pd.DataFrame([res])), width='stretch', hide_index=True)
-    concl = 'se **rechaza** la independencia: hay dependencia estadísticamente significativa' if res['p-valor χ²'] < .05 \
-        else '**no se rechaza** la independencia'
-    st.markdown(f'Con α = 0,05, {concl} (p = {res["p-valor χ²"]:.4f}). La información mutua mide la dependencia sin suponer una forma de relación; '
-                f'su prueba G = 2·N·IM lleva a la misma conclusión que χ² (p = {res["p-valor G"]:.4f}).')
-    if res['% celdas con esperado < 5'] > 20:
-        st.warning(f'{res["% celdas con esperado < 5"]} % de las celdas tiene frecuencia esperada menor a 5: la aproximación χ² es menos confiable.')
-    fig = px.imshow((obs.div(obs.sum(axis=1), axis=0) * 100).round(1), text_auto=True, color_continuous_scale='Blues', aspect='auto',
-                    title=f'% por fila: {CAT[v1]} × {CAT[v2]}')
-    st.plotly_chart(fig, width='stretch')
+    # ---------------- Independencia ----------------
+    with a4:
+        a, b = st.columns(2)
+        v1 = a.selectbox('Variable 1', list(CAT), format_func=CAT.get, index=list(CAT).index('estado_conectividad'))
+        v2 = b.selectbox('Variable 2', [c for c in CAT if c != v1], format_func=CAT.get, index=0)
+        t = df[[v1, v2]].dropna()
+        obs, esp, res = independencia(t[v1].astype(str), t[v2].astype(str))
+        obs, esp = ordenar(obs, v1, v2), ordenar(esp, v1, v2)
+        st.markdown('**Frecuencias observadas**'); st.dataframe(obs.assign(Total=obs.sum(axis=1)), width='stretch')
+        st.markdown('**Frecuencias esperadas bajo independencia**'); st.dataframe(f4(esp), width='stretch')
+        st.dataframe(f4(pd.DataFrame([res])), width='stretch', hide_index=True)
+        concl = 'se **rechaza** la independencia: hay dependencia estadísticamente significativa' if res['p-valor χ²'] < .05 \
+            else '**no se rechaza** la independencia'
+        st.markdown(f'Con α = 0,05, {concl} (p = {res["p-valor χ²"]:.4f}). La información mutua mide la dependencia sin suponer una forma de relación; '
+                    f'su prueba G = 2·N·IM lleva a la misma conclusión que χ² (p = {res["p-valor G"]:.4f}).')
+        if res['% celdas con esperado < 5'] > 20:
+            st.warning(f'{res["% celdas con esperado < 5"]} % de las celdas tiene frecuencia esperada menor a 5: la aproximación χ² es menos confiable.')
+        fig = px.imshow((obs.div(obs.sum(axis=1), axis=0) * 100).round(1), text_auto=True, color_continuous_scale='Blues', aspect='auto',
+                        title=f'% por fila: {CAT[v1]} × {CAT[v2]}')
+        st.plotly_chart(fig, width='stretch')
 
-# ---------------- ANOVA vs Kruskal ----------------
-with t5:
-    a, b = st.columns(2)
-    g = a.selectbox('Variable cualitativa (grupos)', list(CAT), format_func=CAT.get, index=0, key='grp')
-    v = b.selectbox('Variable cuantitativa', list(NUM), format_func=NUM.get, index=0, key='val')
-    orden = ORDENES.get(g)
-    tab, pr = comparar_grupos(df.assign(**{g: df[g].astype(str)}), g, v, orden)
-    st.markdown('**Normalidad por grupo (Shapiro-Wilk)**')
-    st.dataframe(f4(tab), width='stretch')
-    st.dataframe(f4(pd.DataFrame([pr])), width='stretch', hide_index=True)
-    normal = (tab['¿Normal?'] == 'Sí').all(); homo = pr['Levene (mediana) p'] > .05
-    rec = 'ANOVA' if (normal and homo) else 'Kruskal-Wallis'
-    st.markdown(f'- Normalidad en todos los grupos: **{"sí" if normal else "no"}** · Homocedasticidad (Levene): **{"sí" if homo else "no"}**\n'
-                f'- ANOVA: p = {pr["ANOVA p"]:.4f} · Kruskal-Wallis: p = {pr["Kruskal-Wallis p"]:.4f}\n'
-                f'- **Prueba recomendada: {rec}**' + ('' if rec == 'ANOVA' else ', porque se viola al menos un supuesto del ANOVA.'))
-    fig = px.box(df.assign(**{g: df[g].astype(str)}), x=g, y=v, color_discrete_sequence=[AZUL], points='outliers',
-                 category_orders={g: orden} if orden else None, labels={g: CAT[g], v: NUM[v]}, title=f'{NUM[v]} por {CAT[g]}')
-    st.plotly_chart(fig, width='stretch')
+    # ---------------- ANOVA vs Kruskal ----------------
+    with a5:
+        a, b = st.columns(2)
+        g = a.selectbox('Variable cualitativa (grupos)', list(CAT), format_func=CAT.get, index=0, key='grp')
+        v = b.selectbox('Variable cuantitativa', list(NUM), format_func=NUM.get, index=0, key='val')
+        orden = ORDENES.get(g)
+        tab, pr = comparar_grupos(df.assign(**{g: df[g].astype(str)}), g, v, orden)
+        st.markdown('**Normalidad por grupo (Shapiro-Wilk)**')
+        st.dataframe(f4(tab), width='stretch')
+        st.dataframe(f4(pd.DataFrame([pr])), width='stretch', hide_index=True)
+        normal = (tab['¿Normal?'] == 'Sí').all(); homo = pr['Levene (mediana) p'] > .05
+        rec = 'ANOVA' if (normal and homo) else 'Kruskal-Wallis'
+        st.markdown(f'- Normalidad en todos los grupos: **{"sí" if normal else "no"}** · Homocedasticidad (Levene): **{"sí" if homo else "no"}**\n'
+                    f'- ANOVA: p = {pr["ANOVA p"]:.4f} · Kruskal-Wallis: p = {pr["Kruskal-Wallis p"]:.4f}\n'
+                    f'- **Prueba recomendada: {rec}**' + ('' if rec == 'ANOVA' else ', porque se viola al menos un supuesto del ANOVA.'))
+        fig = px.box(df.assign(**{g: df[g].astype(str)}), x=g, y=v, color_discrete_sequence=[AZUL], points='outliers',
+                     category_orders={g: orden} if orden else None, labels={g: CAT[g], v: NUM[v]}, title=f'{NUM[v]} por {CAT[g]}')
+        st.plotly_chart(fig, width='stretch')
 
-# ---------------- Foco Chocó ----------------
-with t6:
-    st.markdown('Comparación de **alcaldías** del Chocó frente a las de los demás departamentos (para no mezclar tipos de entidad).')
-    al = base[base['tipo_entidad'] == 'Alcaldía'].assign(Grupo=lambda x: np.where(x['departamento'] == 'CHOCÓ', 'Chocó', 'Otros 4 departamentos'))
-    ind = {'Energía intermitente o sin energía': al['sin_energia_estable'] == 1,
-           'Depende de internet satelital': al['depende_satelite'] == 1,
-           'Con fibra óptica': al['sin_fibra_optica'] == 0,
-           'Con póliza de seguro': al['poliza_seguro'] == 'Sí.',
-           'Se declara Alto o Crítico': al['nivel_afectacion_cat'].isin(['Alto', 'Crítico'])}
-    comp = pd.DataFrame({k: v.groupby(al['Grupo']).mean() * 100 for k, v in ind.items()}).T.round(1)
-    fig = px.bar(comp.reset_index().melt(id_vars='index', var_name='Grupo', value_name='%'), y='index', x='%', color='Grupo', barmode='group',
-                 orientation='h', color_discrete_map={'Chocó': AZUL, 'Otros 4 departamentos': GRIS}, text='%',
-                 title=f'Alcaldías: Chocó (n = {(al.Grupo == "Chocó").sum()}) frente a otros departamentos (n = {(al.Grupo != "Chocó").sum()})')
-    fig.update_layout(yaxis_title=None)
-    st.plotly_chart(fig, width='stretch')
-    st.success('El Chocó **declara un nivel de afectación similar** al resto, pero su infraestructura es **mucho más frágil**: '
-               'más dependencia del satélite, energía inestable y casi sin seguros. Priorizar solo por autoevaluación puede relegarlo.')
-    st.caption('Siguiente fase propuesta: contrastar la pobreza de 2025 (línea base) con la de 2026 cuando el DANE la publique, '
-               'por departamento y en los municipios PDET.')
+    # ---------------- Foco Chocó ----------------
+    with a6:
+        st.markdown('Comparación de **alcaldías** del Chocó frente a las de los demás departamentos (para no mezclar tipos de entidad).')
+        al = base[base['tipo_entidad'] == 'Alcaldía'].assign(Grupo=lambda x: np.where(x['departamento'] == 'CHOCÓ', 'Chocó', 'Otros 4 departamentos'))
+        ind = {'Energía intermitente o sin energía': al['sin_energia_estable'] == 1,
+               'Depende de internet satelital': al['depende_satelite'] == 1,
+               'Con fibra óptica': al['sin_fibra_optica'] == 0,
+               'Con póliza de seguro': al['poliza_seguro'] == 'Sí.',
+               'Se declara Alto o Crítico': al['nivel_afectacion_cat'].isin(['Alto', 'Crítico'])}
+        comp = pd.DataFrame({k: v.groupby(al['Grupo']).mean() * 100 for k, v in ind.items()}).T.round(1)
+        fig = px.bar(comp.reset_index().melt(id_vars='index', var_name='Grupo', value_name='%'), y='index', x='%', color='Grupo', barmode='group',
+                     orientation='h', color_discrete_map={'Chocó': AZUL, 'Otros 4 departamentos': GRIS}, text='%',
+                     title=f'Alcaldías: Chocó (n = {(al.Grupo == "Chocó").sum()}) frente a otros departamentos (n = {(al.Grupo != "Chocó").sum()})')
+        fig.update_layout(yaxis_title=None)
+        st.plotly_chart(fig, width='stretch')
+        st.success('El Chocó **declara un nivel de afectación similar** al resto, pero su infraestructura es **mucho más frágil**: '
+                   'más dependencia del satélite, energía inestable y casi sin seguros. Priorizar solo por autoevaluación puede relegarlo.')
+        st.caption('Siguiente fase propuesta: contrastar la pobreza de 2025 (línea base) con la de 2026 cuando el DANE la publique, '
+                   'por departamento y en los municipios PDET.')
 
-# ---------------- Modelos (Lab 3) ----------------
+
+
+# ---------------- Páginas del Lab 3 ----------------
 _m = modelos.disponible()
-with t9:
+
+
+def pagina_pipeline():
+    ejecutivo.encabezado('Laboratorio 3 · Construcción de pipelines', 'Cómo se preparan los datos antes de predecir',
+                         'El modelo no lee la encuesta tal cual: una línea de ensamble rellena vacíos, acorta colas, pone todo en la misma escala y '
+                         'traduce las palabras a números. Todo se aprende solo con las entidades de entrenamiento.')
     if _m:
         modelos.pestana_pipeline(_m[3], _m[0], _m[1], _m[2], filtro_modelos)
-with t7:
+
+
+def pagina_lineal():
+    ejecutivo.encabezado('Laboratorio 3 · Modelo de regresión', 'Regresión lineal: fragilidad digital esperada',
+                         'El índice de vulnerabilidad (0 a 5) sube 0,0118 por cada punto de pobreza del municipio y 1,11 en los colegios. '
+                         'El modelo explica ~23 % de la variabilidad (R² en validación cruzada) con un error medio de 0,71 puntos.')
     if _m:
         modelos.pestana_regresion(_m[3], _m[0], _m[2], filtro_modelos)
-with t8:
+
+
+def pagina_logistica():
+    ejecutivo.encabezado('Laboratorio 3 · Modelo de clasificación', 'Regresión logística: ¿afectación Alta o Crítica?',
+                         'En prueba acierta el 90 % (F1 0,90; AUC 0,97). Active "Excluir Risaralda" en la barra lateral para ver la limitación: '
+                         'fuera de ese bloque conviene bajar el umbral.')
     if _m:
         modelos.pestana_clasificacion(_m[3], _m[1], _m[2], filtro_modelos)
+
+
+def pagina_priorizacion():
+    if _m:
+        ejecutivo.pagina_priorizacion(_m[3], _m[0], _m[1], _m[2], filtro_modelos)
+
+
+ejecutivo.estilo()
+nav = st.navigation({
+    'Laboratorio 3 · Modelación': [
+        st.Page(ejecutivo.pagina_resumen, title='Resumen ejecutivo', icon=':material/dashboard:', url_path='resumen', default=True),
+        st.Page(pagina_pipeline, title='Pipeline', icon=':material/conveyor_belt:', url_path='pipeline'),
+        st.Page(pagina_lineal, title='Regresión lineal', icon=':material/trending_up:', url_path='regresion-lineal'),
+        st.Page(pagina_logistica, title='Regresión logística', icon=':material/rule:', url_path='regresion-logistica'),
+        st.Page(pagina_priorizacion, title='Priorización y conclusiones', icon=':material/flag:', url_path='priorizacion'),
+    ],
+    'Anexo': [st.Page(pagina_anexo, title='Exploración (Lab 2)', icon=':material/query_stats:', url_path='anexo-lab2')],
+})
+nav.run()
