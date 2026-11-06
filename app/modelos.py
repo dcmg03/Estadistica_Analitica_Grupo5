@@ -38,6 +38,30 @@ def cargar_modelos():
     return reg, clf, meta
 
 
+@st.cache_resource
+def cargar_sin_risaralda():
+    ruta = MODELOS / 'regresion_logistica_sin_risaralda.joblib'
+    return joblib.load(ruta) if ruta.exists() else None
+
+
+VERSIONES = ['Entrenado con toda la base (302 entidades)', 'Reentrenado sin Risaralda (183 entidades)']
+
+
+def elegir_clasificador(clf, meta, clave):
+    """Selector del modelo de clasificación. Devuelve (modelo, sin_risaralda, hiperparámetros, n de entrenamiento)."""
+    alt = cargar_sin_risaralda()
+    if alt is None:
+        return clf, False, meta['clasificacion']['hiperparametros'], 302
+    v = st.radio('Modelo de clasificación', VERSIONES, horizontal=True, key=clave,
+                 help='El reentrenado aprendió solo de Caldas, Chocó, Quindío y Valle. Con él, la evaluación y las entidades excluyen '
+                      'a Risaralda automáticamente.')
+    if v == VERSIONES[1]:
+        st.caption('Con este modelo se evalúa solo fuera de Risaralda (54 entidades de prueba). Con umbral 0,5 detecta 10 de 12 entidades en '
+                   'afectación alta, lo mismo que el modelo original con umbral 0,3.')
+        return alt, True, meta['clasificacion'].get('hiperparametros_sin_risaralda', {}), 183
+    return clf, False, meta['clasificacion']['hiperparametros'], 302
+
+
 @st.cache_data
 def cargar_base():
     b = pd.read_csv(DATA / 'base_lab3.csv', dtype={'cod_mpio': str})
@@ -152,9 +176,13 @@ def pestana_regresion(base, reg, meta, filtro):
 
 # =============================== REGRESIÓN LOGÍSTICA ===============================
 def pestana_clasificacion(base, clf, meta, filtro):
+    clf, sin_ris, hp, _ = elegir_clasificador(clf, meta, 'clf_version')
+    if sin_ris:
+        filtro_base = filtro
+        filtro = lambda t: filtro_base(t)[lambda d: d['departamento'] != 'RISARALDA']
     st.markdown('**Variable respuesta:** `alto_critico` = 1 si la entidad declara afectación **Alta o Crítica**; 0 si declara Sin afectación, '
                 'Baja o Moderada. **Modelo:** regresión logística con regularización L2 (C = '
-                f'{meta["clasificacion"]["hiperparametros"]["C"]}, pesos de clase {meta["clasificacion"]["hiperparametros"]["class_weight"]}) '
+                f'{hp.get("C")}, pesos de clase {hp.get("class_weight")}) '
                 'dentro de un pipeline (log de los conteos, escalamiento y one-hot).')
     num, cat = meta['clasificacion']['numericas'], meta['clasificacion']['cualitativas']; y = meta['clasificacion']['respuesta']
 
@@ -217,8 +245,12 @@ def pestana_clasificacion(base, clf, meta, filtro):
                          'Recall': recall_score(yt, pc), 'F1-score': f1_score(yt, pc), 'AUC-ROC': roc_auc_score(yt, pr),
                          'Entidades de prueba': len(te)}])
     st.dataframe(tabla4(met), hide_index=True, width='stretch')
-    st.caption(f'Métricas sobre las entidades de prueba que cumplen los filtros, con umbral {umbral:.2f}. Active "Excluir Risaralda" en la barra '
-               'lateral: el recall cae mucho, porque parte del desempeño viene del bloque de colegios de Risaralda con respuestas idénticas.')
+    if sin_ris:
+        st.caption(f'Modelo reentrenado sin Risaralda, evaluado solo fuera de Risaralda, con umbral {umbral:.2f}. Compárelo con el modelo original '
+                   '(selector de arriba) y "Excluir Risaralda" en la barra lateral: reentrenar equivale a bajar el umbral del original a 0,30.')
+    else:
+        st.caption(f'Métricas sobre las entidades de prueba que cumplen los filtros, con umbral {umbral:.2f}. Active "Excluir Risaralda" en la barra '
+                   'lateral: el recall cae mucho, porque parte del desempeño viene del bloque de colegios de Risaralda con respuestas idénticas.')
     c1, c2 = st.columns(2)
     cm = confusion_matrix(yt, pc, labels=[0, 1])
     fig = px.imshow(cm, text_auto=True, color_continuous_scale='Blues', x=['Baja', 'Alta/Crítica'], y=['Baja', 'Alta/Crítica'],
@@ -329,14 +361,18 @@ def pestana_pipeline(base, reg, clf, meta, filtro):
     st.markdown('Antes de predecir, cada respuesta de la encuesta pasa por una **línea de ensamble** de 6 estaciones. Elija una entidad que el '
                 'modelo **nunca vio** al entrenar y siga su recorrido: con **Reproducir** avanza sola, o haga clic en cualquier estación.')
     num, cat = meta['clasificacion']['numericas'], meta['clasificacion']['cualitativas']
+    modelo_clf, sin_ris, _, n_tr = elegir_clasificador(clf, meta, 'pipe_version')
     te = filtro(base[base['conjunto'] == 'prueba'])
+    if sin_ris:
+        te = te[te['departamento'] != 'RISARALDA']
     if te.empty:
         st.warning('No hay entidades de prueba con los filtros actuales.'); return
     etiqueta = te['razon_social'].str.strip().str.slice(0, 60) + ' · ' + te['mpio']
-    sugeridas = te.index[te['razon_social'].str.contains('BERNARDO ARIAS', case=False, na=False)]
-    sel = st.selectbox('Entidad que recorre la línea (conjunto de prueba)', etiqueta.index, format_func=lambda i: etiqueta[i], key='pipe_ent',
+    sugeridas = te.index[te['razon_social'].str.contains('Atrato' if sin_ris else 'BERNARDO ARIAS', case=False, na=False)]
+    sel = st.selectbox('Entidad que recorre la línea (conjunto de prueba)', etiqueta.index, format_func=lambda i: etiqueta[i], key=f'pipe_ent_{sin_ris}',
                        index=int(list(etiqueta.index).index(sugeridas[0])) if len(sugeridas) else 0)
-    datos = _datos_linea(clf, te.loc[sel], num, cat)
+    datos = _datos_linea(modelo_clf, te.loc[sel], num, cat)
+    datos['n_entrenamiento'] = n_tr
     plantilla = (Path(__file__).parent / 'linea_ensamble.html').read_text(encoding='utf-8')
     _iframe(plantilla.replace('__DATOS__', json.dumps(datos, ensure_ascii=False)), 690)
 

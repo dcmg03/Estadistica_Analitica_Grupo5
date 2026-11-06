@@ -98,6 +98,7 @@
 const D = __DATOS__;
 const fmt = (v, d=2) => (v === null || v === undefined) ? '—' : Number(v).toLocaleString('es-CO', {minimumFractionDigits:d, maximumFractionDigits:d});
 const ESTACIONES = [
+  /* textos de cada estación */
   {t:'Llega el formulario', h:'1. Llega el formulario',
    a:'La entidad entrega sus respuestas: algunas son números (cuántos servicios se cayeron, la pobreza del municipio) y otras son palabras ("Sin conectividad", "Parcialmente").',
    p:'Así no le sirven al modelo: mezcla texto y números, y cada número está en una escala distinta (porcentajes, conteos de 0 a 14, un índice de 0 a 5).',
@@ -119,7 +120,7 @@ const ESTACIONES = [
    p:'El modelo solo entiende números. La primera respuesta de cada pregunta (borde punteado) es la referencia: si todos los interruptores están apagados, la entidad respondió esa.',
    tec:'OneHotEncoder(drop="first"): 9 variables → 23 columnas. Total que entra al modelo: 28 columnas.'},
   {t:'Sumar puntos y decidir', h:'6. Sumar puntos y decidir',
-   a:'Cada interruptor y cada número suma o resta puntos de riesgo, según lo que el modelo aprendió de 302 entidades. La suma se convierte en una probabilidad entre 0 % y 100 %.',
+   a:'Cada interruptor y cada número suma o resta puntos de riesgo, según lo que el modelo aprendió de las entidades de entrenamiento. La suma se convierte en una probabilidad entre 0 % y 100 %.',
    p:'Si la probabilidad pasa de 50 %, el modelo dice "afectación Alta o Crítica". Azul = sube el riesgo, gris = lo baja.',
    tec:'LogisticRegression: probabilidad = 1 / (1 + e^(−suma de puntos)).'}
 ];
@@ -172,7 +173,7 @@ function vistaLog(){
 }
 
 function vistaRegla(){
-  let h = '<h4>Dónde queda la entidad frente al promedio de las 302 entidades de entrenamiento</h4>';
+  let h = `<h4>Dónde queda la entidad frente al promedio de las ${D.n_entrenamiento || 302} entidades de entrenamiento</h4>`;
   D.escalado.forEach(v => {
     const z = Math.max(-3, Math.min(3, v.z)), pos = 50 + z / 3 * 50;
     const txt = Math.abs(v.z) < .25 ? 'cerca del promedio' : (v.z > 0 ? 'por encima del promedio' : 'por debajo del promedio');
