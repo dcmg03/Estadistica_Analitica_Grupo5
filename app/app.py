@@ -149,8 +149,9 @@ st.title('Afectación digital de entidades públicas tras el terremoto del 10 de
 st.caption('Laboratorio 3 · Proyecto final de modelación (incluye la exploración e hipótesis del Laboratorio 2) · Resultados redondeados '
            'a 4 decimales · Base: 408 entidades con IPM del DANE (403 sin duplicados en los modelos)')
 
-t0, t1, t2, t3, t4, t5, t6, t7, t8 = st.tabs(['Proyecto', 'Resumen', 'Univariado', 'Correlación', 'Independencia (χ²)', 'ANOVA vs Kruskal-Wallis',
-                                              'Foco Chocó', 'Modelo: regresión lineal', 'Modelo: regresión logística'])
+t0, t1, t2, t3, t4, t5, t6, t9, t7, t8 = st.tabs(['Proyecto', 'Resumen', 'Univariado', 'Correlación', 'Independencia (χ²)',
+                                                  'ANOVA vs Kruskal-Wallis', 'Foco Chocó', 'Pipeline', 'Modelo: regresión lineal',
+                                                  'Modelo: regresión logística'])
 
 
 def filtro_modelos(t):
@@ -178,7 +179,8 @@ modelar, pruebas de hipótesis, pipelines con escalamiento, entrenamiento, evalu
 
 **Cómo usar esta aplicación.** Los **filtros de la barra lateral** (departamento, tipo de entidad, excluir Risaralda) aplican a todas las
 pestañas, incluidas las métricas de los modelos. Las pestañas *Resumen* a *Foco Chocó* son la exploración; las dos últimas muestran la
-evaluación de cada modelo y permiten **hacer predicciones** con sus propios datos.
+evaluación de cada modelo y permiten **hacer predicciones** con sus propios datos. La pestaña *Pipeline* muestra, paso a paso, cómo se
+transforma una entidad desde la encuesta hasta la predicción.
 ''')
     c1, c2, c3, c4 = st.columns(4)
     c1.metric('Logística · F1 (prueba)', '0,9000')
@@ -322,6 +324,9 @@ with t6:
 
 # ---------------- Modelos (Lab 3) ----------------
 _m = modelos.disponible()
+with t9:
+    if _m:
+        modelos.pestana_pipeline(_m[3], _m[0], _m[1], _m[2], filtro_modelos)
 with t7:
     if _m:
         modelos.pestana_regresion(_m[3], _m[0], _m[2], filtro_modelos)

@@ -244,3 +244,190 @@ def pestana_clasificacion(base, clf, meta, filtro):
     fig.add_vline(x=1, line_color='black')
     fig.update_layout(yaxis_title=None, legend_title=None)
     st.plotly_chart(fig, width='stretch')
+
+
+# =============================== PIPELINE (presentación) ===============================
+PASOS = ['0. Datos originales', '1. Imputación', '2. log(1 + x) de los conteos', '3. Escalamiento', '4. One-hot', '5. Modelo y predicción']
+NOMBRE_PASO = {'imputar': '1. Imputación', 'log1p': '2. log(1 + x) de los conteos', 'escalar': '3. Escalamiento'}
+
+
+def _franja(actual):
+    """Franja de pasos con el paso actual resaltado."""
+    cajas = []
+    for p in PASOS:
+        on = p == actual
+        cajas.append(f'<div style="flex:1;padding:10px 6px;border-radius:8px;text-align:center;font-size:13px;'
+                     f'background:{AZUL if on else "#eef3fb"};color:{"white" if on else "#1a1a1a"};'
+                     f'font-weight:{700 if on else 400};border:1px solid {AZUL if on else "#d6e3f5"}">{p}</div>')
+    st.markdown('<div style="display:flex;gap:6px;align-items:stretch;margin:6px 0 14px">' + '<span style="align-self:center">→</span>'.join(cajas)
+                + '</div>', unsafe_allow_html=True)
+
+
+def _etapas_numericas(pre, ent):
+    """Valor de cada variable numérica después de cada paso de su bloque."""
+    filas = []
+    for nombre, pasos, cols in pre.transformers_:
+        if nombre not in ('conteos', 'numericas'):
+            continue
+        x = ent[cols].astype(float)          # DataFrame: el imputador se ajustó con nombres de columnas
+        fila = {c: {'Bloque': nombre, '0. Datos originales': x.iloc[0, j]} for j, c in enumerate(cols)}
+        for paso, tr in pasos.steps:
+            x = tr.transform(x)
+            for j, c in enumerate(cols):
+                fila[c][NOMBRE_PASO[paso]] = x[0, j]
+        for c in cols:
+            fila[c].setdefault('2. log(1 + x) de los conteos', np.nan)
+            filas.append({'Variable': ETIQUETAS.get(c, c), **fila[c]})
+    return pd.DataFrame(filas).set_index('Variable')
+
+
+def pestana_pipeline(base, reg, clf, meta, filtro):
+    st.markdown('Un **pipeline** encadena el preprocesamiento y el modelo en un solo objeto. Se ajusta **solo con los datos de entrenamiento** '
+                '(medianas, medias, desviaciones y categorías), así la validación no tiene fuga de información, y el modelo guardado recibe los datos '
+                'tal como los escribe el usuario.')
+
+    # ---------- 1. Estructura ----------
+    st.subheader('1. Estructura del pipeline')
+    cual = st.radio('Modelo', ['Regresión logística (clasificación)', 'Regresión lineal (regresión)'], horizontal=True, key='pipe_modelo')
+    modelo = clf if cual.startswith('Regresión logística') else reg
+    from sklearn.utils import estimator_html_repr
+    html = estimator_html_repr(modelo)
+    if hasattr(st, 'iframe'):   # Streamlit reciente
+        st.iframe(html, height=470)
+    else:                       # versiones anteriores
+        import streamlit.components.v1 as components
+        components.html(html, height=470, scrolling=True)
+    st.caption('Diagrama interactivo de scikit-learn: haga clic en cada caja para ver su configuración (columnas, estrategia de imputación, escalador, '
+               'hiperparámetros del modelo).')
+    st.markdown('''
+| Bloque | Variables | Pasos | Por qué |
+|---|---|---|---|
+| **conteos** | servicios caídos, infraestructura afectada, sistemas afectados | mediana → log(1 + x) → StandardScaler | Muy asimétricos (g1 ≈ 1,8–2,5 en el Lab 2): el logaritmo acorta la cola |
+| **numericas** | IPM, índice de vulnerabilidad | mediana → StandardScaler | Lleva todas las variables a la misma escala (media 0, desviación 1) |
+| **cualitativas** | conectividad, energía, personal, sistemas, riesgo, sede, zonas, infraestructura, tipo (y departamento en la lineal) | moda → one-hot (sin la 1.ª categoría) | El modelo solo recibe números; se quita una categoría para evitar la trampa de las ficticias |
+''')
+
+    # ---------- 2. Paso a paso ----------
+    st.subheader('2. Siga una entidad por el pipeline (regresión logística)')
+    num, cat = meta['clasificacion']['numericas'], meta['clasificacion']['cualitativas']
+    te = filtro(base[base['conjunto'] == 'prueba'])
+    if te.empty:
+        st.warning('No hay entidades de prueba con los filtros actuales.'); return
+    etiqueta = te['razon_social'].str.strip().str.slice(0, 55) + ' · ' + te['mpio']
+    a, b = st.columns([3, 1])
+    sel = a.selectbox('Entidad del conjunto de prueba (el modelo nunca la vio al entrenar)', etiqueta.index,
+                      format_func=lambda i: etiqueta[i], key='pipe_ent')
+    real = int(te.loc[sel, 'alto_critico'])
+    b.metric('Clase real', 'Alta/Crítica' if real else 'Baja', help=f'Nivel declarado: {te.loc[sel, "nivel_afectacion_cat"]}')
+    paso = st.select_slider('Avance paso a paso', PASOS, value=PASOS[0], key='pipe_paso')
+    _franja(paso)
+
+    ent = te.loc[[sel], num + cat]
+    pre, mod = clf.named_steps['preprocesamiento'], clf.named_steps['modelo']
+    k = PASOS.index(paso)
+    tabla = _etapas_numericas(pre, ent)
+    cols_mostrar = ['Bloque'] + PASOS[:min(k, 3) + 1]
+
+    if k <= 3:
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            st.markdown('**Variables numéricas**')
+            st.dataframe(tabla[cols_mostrar].style.format(precision=4, na_rep='no aplica'), width='stretch')
+        with c2:
+            st.markdown('**Variables cualitativas**')
+            st.dataframe(ent[cat].T.rename(columns={sel: 'Valor'}).rename(index=ETIQUETAS), width='stretch', height=360)
+        if k == 0:
+            st.info('Así llegan los datos desde la encuesta y el DANE. El modelo todavía no puede usarlos: hay texto, escalas distintas y conteos con colas largas.')
+        elif k == 1:
+            med = pre.named_transformers_['numericas'].named_steps['imputar'].statistics_
+            st.info('Si una variable viniera vacía, se llenaría con la **mediana** (numéricas) o la **moda** (cualitativas) del entrenamiento. '
+                    f'Por ejemplo, el IPM vacío se reemplazaría por {med[0]:.1f} %. En la base solo había 2 faltantes (estado de los sistemas y de la infraestructura).')
+        elif k == 2:
+            st.info('Los conteos se transforman con **log(1 + x)**: 0 → 0; 1 → 0,69; 3 → 1,39; 14 → 2,71. Así una entidad con 14 elementos afectados no domina el modelo.')
+        else:
+            esc = pre.named_transformers_['numericas'].named_steps['escalar']
+            x0 = float(ent['ipm'].iloc[0])
+            st.info(f'**StandardScaler:** z = (x − media) / desviación, con la media y la desviación del entrenamiento. IPM: ({x0:.1f} − {esc.mean_[0]:.2f}) / '
+                    f'{esc.scale_[0]:.2f} = **{(x0 - esc.mean_[0]) / esc.scale_[0]:.4f}**. Un valor positivo indica que está por encima del promedio.')
+    elif k == 4:
+        oh = pre.named_transformers_['cualitativas']
+        nombres = oh.named_steps['onehot'].get_feature_names_out(cat)
+        vals = oh.transform(ent[cat])[0]
+        filas = []
+        for v in cat:
+            columnas = [(n, x) for n, x in zip(nombres, vals) if n.startswith(v + '_')]
+            for n, x in columnas:
+                filas.append({'Variable': ETIQUETAS.get(v, v), 'Columna one-hot': n[len(v) + 1:], 'Valor': int(x)})
+        oht = pd.DataFrame(filas)
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            st.dataframe(oht.style.apply(lambda r: ['background-color:#d6e3f5;font-weight:bold' if r['Valor'] == 1 else '' for _ in r], axis=1),
+                         hide_index=True, width='stretch', height=420)
+        with c2:
+            st.info(f'Cada categoría se vuelve una columna 0/1. Las **{len(cat)} variables cualitativas** pasan a **{len(nombres)} columnas**; '
+                    f'esta entidad tiene **{int(vals.sum())}** en 1 (resaltadas). Si todas las columnas de una variable están en 0, la entidad está en la '
+                    '**categoría de referencia** (la primera, que se quitó).')
+            st.metric('Columnas que recibe el modelo', len(pre.get_feature_names_out()))
+    else:
+        z = pre.transform(ent)[0]
+        nombres = [n.split('__', 1)[1] for n in pre.get_feature_names_out()]
+        aporte = pd.DataFrame({'Columna': nombres, 'Aporte': z * mod.coef_[0]})
+        aporte = aporte[aporte['Aporte'].abs() > 1e-9]
+        principales = aporte.reindex(aporte['Aporte'].abs().sort_values(ascending=False).index).head(10)
+        resto = aporte['Aporte'].sum() - principales['Aporte'].sum()
+        logit = mod.intercept_[0] + aporte['Aporte'].sum()
+        prob = 1 / (1 + np.exp(-logit))
+        corto = lambda t: t if len(t) <= 32 else t[:30] + '…'
+        x = ['Intercepto', *[corto(c) for c in principales['Columna']], 'Otras columnas', 'Log-odds total']
+        y = [mod.intercept_[0], *principales['Aporte'], resto, logit]
+        fig = go.Figure(go.Waterfall(x=x, y=y, measure=['absolute'] + ['relative'] * (len(x) - 2) + ['total'],
+                                     increasing={'marker': {'color': AZUL}}, decreasing={'marker': {'color': GRIS}},
+                                     totals={'marker': {'color': NARANJA}}, text=[f'{v:+.2f}' for v in y], textposition='outside'))
+        fig.update_layout(title='Del pipeline a la predicción: aporte de cada columna (coeficiente × valor transformado)', yaxis_title='Log-odds',
+                          height=520, xaxis_tickangle=-30, margin=dict(b=170))
+        st.plotly_chart(fig, width='stretch')
+        c1, c2, c3 = st.columns(3)
+        c1.metric('Log-odds', f'{logit:.4f}')
+        c2.metric('Probabilidad = 1 / (1 + e^(−log-odds))', f'{prob:.1%}')
+        pred = int(prob >= .5)
+        c3.metric('Predicción (umbral 0,5)', 'Alta/Crítica' if pred else 'Baja',
+                  delta='acierta' if pred == real else 'se equivoca', delta_color='normal' if pred == real else 'inverse')
+
+    # ---------- 3. Escalamiento ----------
+    st.subheader('3. ¿Qué hace cada escalador?')
+    from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+    ESC = {'StandardScaler': StandardScaler(), 'MinMaxScaler': MinMaxScaler(), 'RobustScaler': RobustScaler()}
+    a, b, c = st.columns(3)
+    var = a.selectbox('Variable', num, format_func=ETIQUETAS.get, key='esc_var')
+    nom = b.radio('Escalador', list(ESC), horizontal=True, key='esc_nom')
+    uselog = c.checkbox('Aplicar log(1 + x) antes', value=var.startswith('n_'), key='esc_log')
+    tr = base[base['conjunto'] == 'entrenamiento'][var].dropna().astype(float)
+    x = np.log1p(tr) if uselog else tr
+    xs = ESC[nom].fit_transform(x.values.reshape(-1, 1)).ravel()
+    c1, c2 = st.columns(2)
+    fig = px.histogram(x=tr, nbins=25, color_discrete_sequence=[GRIS], title='Original', labels={'x': ETIQUETAS[var]})
+    fig.update_layout(yaxis_title='Entidades', height=300); c1.plotly_chart(fig, width='stretch')
+    fig = px.histogram(x=xs, nbins=25, color_discrete_sequence=[AZUL], title=f'Después de {"log(1 + x) y " if uselog else ""}{nom}',
+                       labels={'x': 'Valor transformado'})
+    fig.update_layout(yaxis_title='Entidades', height=300); c2.plotly_chart(fig, width='stretch')
+    resumen = pd.DataFrame({'Original': [tr.mean(), tr.std(), tr.median(), tr.min(), tr.max()],
+                            'Transformada': [xs.mean(), xs.std(ddof=1), np.median(xs), xs.min(), xs.max()]},
+                           index=['Media', 'Desv. est.', 'Mediana', 'Mínimo', 'Máximo']).T
+    st.dataframe(tabla4(resumen), width='stretch')
+    st.caption({'StandardScaler': 'Resta la media y divide por la desviación estándar: media 0 y desviación 1. Sensible a atípicos.',
+                'MinMaxScaler': 'Lleva el mínimo a 0 y el máximo a 1. Un solo atípico comprime a todas las demás entidades.',
+                'RobustScaler': 'Resta la mediana y divide por el rango intercuartílico: resistente a atípicos (mediana 0).'}[nom]
+               + ' La forma de la distribución no cambia con ningún escalador; solo cambia la escala. El logaritmo sí cambia la forma.')
+    try:
+        comp = pd.read_csv(MODELOS / 'comparacion_escaladores.csv', index_col=0)
+        largo = comp.reset_index().melt(id_vars='Escalador', var_name='Métrica', value_name='Valor')
+        fig = px.bar(largo, x='Escalador', y='Valor', color='Escalador', facet_col='Métrica', facet_col_spacing=.06, text_auto='.4f',
+                     color_discrete_sequence=[GRIS, AZUL, '#9ec5f4', '#1c5cab'], title='Validación cruzada (5 pliegues) con cada escalador')
+        fig.update_yaxes(matches=None, showticklabels=True); fig.update_xaxes(showticklabels=False, title=None)
+        fig.for_each_annotation(lambda t: t.update(text=t.text.split('=')[-1]))
+        st.plotly_chart(fig, width='stretch')
+        st.markdown('En la **regresión lineal** el escalamiento no cambia nada (mínimos cuadrados da las mismas predicciones con cualquier escala). '
+                    'En la **logística** sí importa un poco, porque la regularización L2 penaliza igual a todos los coeficientes: MinMaxScaler queda '
+                    'último. Se eligió **StandardScaler**, que permite leer los coeficientes como el efecto de aumentar una desviación estándar.')
+    except FileNotFoundError:
+        st.caption('Ejecute el notebook 03 para ver la comparación de escaladores con validación cruzada.')

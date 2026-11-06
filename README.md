@@ -22,7 +22,7 @@ Estadistica_Analitica_Grupo5/
 ├── app/
 │   ├── app.py                ← dashboard en Streamlit (entregable de los Labs 2 y 3)
 │   ├── estadistica.py        ← funciones estadísticas del dashboard
-│   └── modelos.py            ← pestañas de los modelos del Lab 3 (predicciones y evaluación)
+│   └── modelos.py            ← pestañas del Lab 3: Pipeline (paso a paso), modelos, predicciones y evaluación
 ├── models/                   ← modelos entrenados por el notebook 03 (se regeneran con Run All)
 │   ├── regresion_lineal.joblib, regresion_logistica.joblib
 │   └── metadatos.json
