@@ -81,9 +81,9 @@ def pagina_resumen():
     tarjeta(c[0], 'Clasificación', 'El personal y la conectividad definen la afectación',
             'Tener el <b>personal TIC afectado</b> duplica las chances de afectación alta (OR 2,10). Le siguen la <b>operación detenida</b> (1,96) '
             'y estar <b>sin conectividad</b> (1,79).')
-    tarjeta(c[1], 'Regresión', 'La pobreza explica la fragilidad, no la afectación declarada',
-            'Cada punto de IPM suma <b>0,0118</b> al índice de vulnerabilidad (p = 0,013). Los <b>colegios</b> tienen 1,11 puntos más que las alcaldías. '
-            'El índice no se asocia con el nivel de afectación que la entidad declara.')
+    tarjeta(c[1], 'Regresión', 'La fragilidad se puede anticipar antes de la encuesta',
+            'Solo con el IPM del DANE, el departamento y el tipo de entidad se estima la fragilidad: cada punto de IPM suma <b>0,0118</b> '
+            '(p = 0,013) y los <b>colegios</b> tienen 1,11 puntos más que las alcaldías. Un colegio de Alto Baudó: 3,85 de 5; un hospital de Palmira: 0,76.')
     tarjeta(c[2], 'Alerta de calidad', 'El bloque de Risaralda infla el clasificador',
             '145 de los 160 casos "Crítico" son colegios de Risaralda con respuestas casi idénticas. Sin ellos, el F1 baja de <b>0,87 a 0,56</b> '
             '(validación cruzada). Hay que validarlo con MinTIC.', alerta=True)
@@ -181,16 +181,20 @@ def pagina_priorizacion(base, reg, clf, meta, filtro):
         st.download_button('Descargar la lista completa (CSV)', top.to_csv(index=False).encode('utf-8-sig'), 'priorizacion_entidades.csv',
                            'text/csv')
 
-    st.markdown('#### Conclusiones y recomendaciones para MinTIC')
+    st.markdown('#### Lo que aprendimos en el Lab 3 y qué recomendamos a MinTIC')
     c = st.columns(3)
-    tarjeta(c[0], 'Recomendación 1', 'Priorizar con los dos modelos, no solo con la autoevaluación',
-            'La afectación declarada no refleja la pobreza ni la fragilidad. Las entidades del <b>Chocó</b> declaran niveles similares al resto, '
-            'pero son más frágiles: la matriz las hace visibles.')
-    tarjeta(c[1], 'Recomendación 2', 'Bajar el umbral fuera de Risaralda',
-            'Con umbral 0,3 el recall fuera de Risaralda sube de <b>0,42 a 0,83</b>. Para MinTIC es más grave no atender una entidad crítica '
-            'que revisar una que no lo era.')
-    tarjeta(c[2], 'Recomendación 3', 'Validar el bloque de Risaralda y reentrenar', 'Confirmar con MinTIC si las 145 respuestas casi '
-            'idénticas son reales. Después, reentrenar sin ese bloque y probar modelos de Poisson u ordinales para el índice.', alerta=True)
+    n_prev = int(conteo.get('3. Prevenir', 0))
+    tarjeta(c[0], 'Conclusión 1', f'{n_prev} entidades frágiles que hoy no piden ayuda',
+            'El cuadrante <b>Prevenir</b> reúne entidades que no declaran crisis, pero cuya fragilidad esperada es alta. Un triage basado solo en la '
+            'encuesta nunca las vería. <b>Recomendación:</b> visitas preventivas (fibra, póliza, planes de contingencia) antes del próximo evento.')
+    tarjeta(c[1], 'Conclusión 2', 'El umbral es una decisión de política pública',
+            'Fuera de Risaralda, pasar de 0,5 a <b>0,3</b> detecta 10 de cada 12 entidades críticas en vez de 5; reentrenar sin Risaralda llega al '
+            'mismo punto. <b>Recomendación:</b> fijar el umbral según el costo de dejar una entidad sin atención, no por costumbre.')
+    tarjeta(c[2], 'Conclusión 3', 'Un 90 % de acierto puede venir del formulario',
+            'El desempeño más alto venía en parte de 145 respuestas casi idénticas. <b>Recomendación:</b> validar siempre por departamento antes de '
+            'confiar en una métrica, y verificar con MinTIC el bloque de Risaralda.', alerta=True)
+    st.info('**Los colegios son el eslabón más débil en los dos modelos:** tienen más chances de crisis (OR 1,81) y más fragilidad '
+            '(+1,11 puntos frente a las alcaldías). Son el grupo natural para empezar.')
     st.markdown('')
     with st.container(border=True):
         st.markdown('''

@@ -104,178 +104,76 @@ def tabla4(d):
 
 
 # =============================== REGRESIÓN LINEAL ===============================
+def _plantilla(nombre, datos):
+    html = (Path(__file__).parent / nombre).read_text(encoding='utf-8')
+    return html.replace('__DATOS__', json.dumps(datos, ensure_ascii=False))
+
+
+def _municipios(base):
+    m = base.drop_duplicates('cod_mpio').sort_values('mpio')
+    return [{'n': r.mpio, 'ipm': float(r.ipm), 'dep': r.departamento} for r in m.itertuples() if pd.notna(r.ipm)]
+
+
 def pestana_regresion(base, reg, meta, filtro):
-    st.markdown('**Variable respuesta:** índice de vulnerabilidad digital (0 a 5), suma de 5 condiciones desfavorables: sin energía estable, '
-                'sin fibra óptica, sin póliza de seguro, sin planes de contingencia y personal TIC insuficiente. '
-                '**Predictores:** IPM del municipio, departamento y tipo de entidad (ninguno de los componentes del índice, para evitar fuga de '
-                'información). **Modelo:** regresión lineal por mínimos cuadrados dentro de un pipeline (escalamiento + one-hot).')
     X = meta['regresion']['numericas'] + meta['regresion']['cualitativas']; y = meta['regresion']['respuesta']
+    pts = filtro(base).dropna(subset=X + [y])
+    rng = np.random.default_rng(7)
+    munis = _municipios(base)
+    ini = next((m for m in munis if m['n'].startswith('Quibdó')), munis[0])
+    datos = {'coef': params_lineal(reg), 'munis': munis, 'tipos': sorted(base['tipo_entidad_g'].dropna().unique()),
+             'init': {'mun': ini['n'], 'dep': ini['dep'], 'ipm': ini['ipm'], 'tipo': 'Alcaldía'},
+             'puntos': [{'ipm': float(r.ipm), 'y': int(r.indice_vulnerabilidad), 'j': float(rng.uniform(-.18, .18)), 'dep': r.departamento,
+                         'tipo': r.tipo_entidad_g, 'nom': str(r.razon_social).strip()[:60], 'mun': r.mpio} for r in pts.itertuples()]}
+    datos['depnom'] = {d: d.title().replace(' Del ', ' del ') for d in base['departamento'].dropna().unique()}
+    _iframe(_plantilla('lineal.html', datos), 610)
 
-    st.subheader('1. Hacer una predicción')
-    a, b = st.columns([1, 2])
-    with a:
-        dep, ipm = selector_municipio(base, 'reg_mpio')
-        tipo = st.selectbox('Tipo de entidad', opciones(base, 'tipo_entidad_g'), key='reg_tipo')
-        ipm = st.slider('IPM a usar (puede simular otro valor)', 0.0, 100.0, ipm, 0.5, key='reg_ipm')
-        entrada = pd.DataFrame([{'ipm': ipm, 'departamento': dep, 'tipo_entidad_g': tipo}])
-        pred = float(reg.predict(entrada[X])[0])
-        st.metric('Índice de vulnerabilidad esperado', f'{pred:.2f} de 5')
-        nivel = 'bajo' if pred < 1.5 else ('medio' if pred < 2.5 else 'alto')
-        st.markdown(f'Vulnerabilidad esperada **{nivel}**. Promedio de la base: {base[y].mean():.2f}.')
-        st.caption('El modelo explica ~23 % de la variabilidad (validación cruzada): sirve para comparar grupos de entidades, '
-                   'no para conocer el índice exacto de una entidad.')
-    with b:
-        rejilla = pd.DataFrame([{'ipm': v, 'departamento': dep, 'tipo_entidad_g': t} for t in opciones(base, 'tipo_entidad_g')
-                                for v in np.linspace(5, 95, 37)])
-        rejilla['pred'] = reg.predict(rejilla[X])
-        fig = px.line(rejilla, x='ipm', y='pred', color='tipo_entidad_g', labels={'ipm': 'IPM municipal (%)', 'pred': 'Índice esperado',
-                      'tipo_entidad_g': 'Tipo de entidad'}, title=f'Índice esperado según el IPM · {dep.title()}',
-                      color_discrete_sequence=['#0d366b', AZUL, '#9ec5f4', GRIS])
-        fig.add_trace(go.Scatter(x=[ipm], y=[pred], mode='markers', marker=dict(size=14, color=NARANJA, line=dict(color='white', width=2)),
-                                 name='Su entidad'))
-        fig.update_yaxes(range=[0, 5])
-        st.plotly_chart(fig, width='stretch')
-
-    st.subheader('2. Evaluación del modelo')
-    te = filtro(base[base['conjunto'] == 'prueba'])
-    if len(te) < 10:
+    st.subheader('¿Qué tan cerca queda el modelo? (entidades de prueba)')
+    te = filtro(base[base['conjunto'] == 'prueba']).dropna(subset=X + [y])
+    if len(te) < 5:
         st.warning('Hay muy pocas entidades de prueba con los filtros actuales.'); return
-    p = reg.predict(te[X]); yt = te[y].values; m = yt > 0
-    met = pd.DataFrame([{'MAE': mean_absolute_error(yt, p), 'RMSE': np.sqrt(mean_squared_error(yt, p)),
-                         'MAPE (%)': np.mean(np.abs((yt[m] - p[m]) / yt[m])) * 100 if m.any() else np.nan,
-                         'R²': r2_score(yt, p) if len(te) > 1 else np.nan, 'Entidades de prueba': len(te)}])
-    st.dataframe(tabla4(met), hide_index=True, width='stretch')
-    st.caption('Métricas sobre las entidades de prueba que cumplen los filtros de la barra lateral. MAPE calculado solo con índice > 0 '
-               '(el porcentaje no está definido cuando el valor real es 0). En la partición completa el R² es bajo (0,07): esa partición quedó '
-               'en el percentil 4 de la validación cruzada repetida, cuyo R² medio es 0,23.')
-    c1, c2 = st.columns(2)
-    jit = np.random.default_rng(1).uniform(-.12, .12, len(te))
-    fig = px.scatter(x=yt + jit, y=p, color=te['departamento'].str.title(), hover_name=te['mpio'],
-                     labels={'x': 'Índice real', 'y': 'Índice predicho', 'color': 'Departamento'}, title='Real vs predicho (prueba)')
-    fig.add_shape(type='line', x0=0, y0=0, x1=5, y1=5, line=dict(dash='dash', color=NARANJA))
-    c1.plotly_chart(fig, width='stretch')
-    fig = px.histogram(x=yt - p, nbins=20, color_discrete_sequence=[AZUL], labels={'x': 'Residuo (real − predicho)'},
-                       title='Distribución de los residuos (prueba)')
-    fig.update_layout(yaxis_title='N° de entidades')
-    c2.plotly_chart(fig, width='stretch')
-
-    st.subheader('3. Coeficientes')
-    pre, mod = reg.named_steps['preprocesamiento'], reg.named_steps['modelo']
-    coef = pd.DataFrame({'Variable': [n.split('__', 1)[1] for n in pre.get_feature_names_out()], 'Coeficiente': mod.coef_})
-    sd = pre.named_transformers_['numericas'].named_steps['escalar'].scale_[0]
-    coef.loc[coef['Variable'] == 'ipm', 'Variable'] = f'ipm (por cada desviación estándar = {sd:.1f} puntos)'
-    fig = px.bar(coef.sort_values('Coeficiente'), x='Coeficiente', y='Variable', orientation='h',
-                 color=np.where(coef.sort_values('Coeficiente')['Coeficiente'] > 0, 'Aumenta', 'Disminuye'),
-                 color_discrete_map={'Aumenta': AZUL, 'Disminuye': GRIS}, title='Efecto sobre el índice (referencias: Caldas y Alcaldía)')
-    fig.update_layout(yaxis_title=None, legend_title=None)
-    st.plotly_chart(fig, width='stretch')
-    st.markdown('Por cada punto de IPM el índice sube **0,0118** (p = 0,0131). Las **instituciones educativas** tienen 1,11 puntos más que las '
-                'alcaldías y los **hospitales** 0,65 menos. Prueba F global: p < 0,0001. Breusch-Pagan detectó heterocedasticidad, por lo que '
-                'en el notebook los p-valores se verificaron con errores robustos (HC3).')
+    pr = reg.predict(te[X])
+    datos = {'test': [{'nom': str(r.razon_social).strip()[:60], 'real': int(r.indice_vulnerabilidad), 'pred': float(p)}
+                      for r, p in zip(te.itertuples(), pr)]}
+    _iframe(_plantilla('errores.html', datos), 425)
 
 
 # =============================== REGRESIÓN LOGÍSTICA ===============================
 def pestana_clasificacion(base, clf, meta, filtro):
     clf, sin_ris, hp, _ = elegir_clasificador(clf, meta, 'clf_version')
-    if sin_ris:
-        filtro_base = filtro
-        filtro = lambda t: filtro_base(t)[lambda d: d['departamento'] != 'RISARALDA']
-    st.markdown('**Variable respuesta:** `alto_critico` = 1 si la entidad declara afectación **Alta o Crítica**; 0 si declara Sin afectación, '
-                'Baja o Moderada. **Modelo:** regresión logística con regularización L2 (C = '
-                f'{hp.get("C")}, pesos de clase {hp.get("class_weight")}) '
-                'dentro de un pipeline (log de los conteos, escalamiento y one-hot).')
     num, cat = meta['clasificacion']['numericas'], meta['clasificacion']['cualitativas']; y = meta['clasificacion']['respuesta']
+    munis = _municipios(base)
+    ini_m = next((m for m in munis if m['n'].startswith('Quibdó')), munis[0])
+    inicial = {c: str(base[c].mode()[0]) for c in cat}
+    inicial['tipo_entidad_g'] = 'Alcaldía'
+    for c in num:
+        inicial[c] = int(base[c].median()) if c != 'ipm' else ini_m['ipm']
+    datos = {'params': params_logistica(clf), 'munis': munis, 'mun_inicial': ini_m['n'], 'inicial': inicial, 'umbral': 0.5}
+    _iframe(_plantilla('simulador.html', datos), 690)
 
-    st.subheader('1. Hacer una predicción')
-    st.caption('Responda como si fuera una entidad que diligencia la encuesta. Los valores iniciales corresponden a una entidad típica.')
-    entrada = {}
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        _, entrada['ipm'] = selector_municipio(base, 'clf_mpio')
-        entrada['tipo_entidad_g'] = st.selectbox(ETIQUETAS['tipo_entidad_g'], opciones(base, 'tipo_entidad_g'), key='clf_tipo')
-        for c in ['estado_conectividad', 'energia_g']:
-            ops = opciones(base, c); moda = base[c].mode()[0]
-            entrada[c] = st.selectbox(ETIQUETAS[c], ops, index=ops.index(moda), key=f'clf_{c}')
-    with c2:
-        for c in ['personal_afectado', 'estado_sistemas', 'riesgo_continuidad', 'sede_contingencia']:
-            ops = opciones(base, c); moda = base[c].mode()[0]
-            entrada[c] = st.selectbox(ETIQUETAS[c], ops, index=ops.index(moda), key=f'clf_{c}')
-    with c3:
-        for c in ['zonas_incomunicadas', 'estado_infra']:
-            ops = opciones(base, c); moda = base[c].mode()[0]
-            entrada[c] = st.selectbox(ETIQUETAS[c], ops, index=ops.index(moda), key=f'clf_{c}')
-        for c, mx in [('n_servicios_caidos', 7), ('n_infra_afectada', 14), ('n_sistemas_afectados', 8), ('indice_vulnerabilidad', 5)]:
-            entrada[c] = st.slider(ETIQUETAS[c], 0, mx, int(base[c].median()), key=f'clf_{c}')
-    X = pd.DataFrame([entrada])[num + cat]
-    prob = float(clf.predict_proba(X)[0, 1])
-    umbral = st.slider('Umbral de decisión (bajarlo aumenta el recall: se detectan más entidades críticas, con más falsas alarmas)',
-                       0.1, 0.9, 0.5, 0.05, key='clf_umbral')
-    a, b = st.columns([1, 2])
-    with a:
-        fig = go.Figure(go.Indicator(mode='gauge+number', value=prob * 100, number={'suffix': ' %', 'valueformat': '.1f'},
-                                     title={'text': 'Probabilidad de afectación Alta o Crítica'},
-                                     gauge={'axis': {'range': [0, 100]}, 'bar': {'color': AZUL},
-                                            'threshold': {'line': {'color': NARANJA, 'width': 3}, 'value': umbral * 100}}))
-        fig.update_layout(height=260, margin=dict(t=60, b=10, l=20, r=20))
-        st.plotly_chart(fig, width='stretch')
-        if prob >= umbral:
-            st.error(f'**Clasificación: afectación ALTA o CRÍTICA** (probabilidad {prob:.1%} ≥ umbral {umbral:.0%}). Priorizar atención.')
-        else:
-            st.success(f'**Clasificación: afectación BAJA** (probabilidad {prob:.1%} < umbral {umbral:.0%}).')
-    with b:
-        # Contribución de cada variable al log-odds (coeficiente × valor transformado)
-        pre, mod = clf.named_steps['preprocesamiento'], clf.named_steps['modelo']
-        z = pre.transform(X)[0] * mod.coef_[0]
-        nombres = [n.split('__', 1)[1] for n in pre.get_feature_names_out()]
-        contrib = pd.DataFrame({'Variable': nombres, 'Aporte': z})
-        contrib = contrib[contrib['Aporte'].abs() > 1e-6].sort_values('Aporte', key=abs, ascending=False).head(10).sort_values('Aporte')
-        fig = px.bar(contrib, x='Aporte', y='Variable', orientation='h', title='¿Qué empuja esta predicción? (aporte al log-odds)',
-                     color=np.where(contrib['Aporte'] > 0, 'Sube el riesgo', 'Baja el riesgo'),
-                     color_discrete_map={'Sube el riesgo': AZUL, 'Baja el riesgo': GRIS})
-        fig.update_layout(yaxis_title=None, legend_title=None, height=360)
-        st.plotly_chart(fig, width='stretch')
-        st.caption('Variables numéricas: aporte respecto a una entidad promedio. Cualitativas: aporte frente a la categoría de referencia.')
-
-    st.subheader('2. Evaluación del modelo')
-    te = filtro(base[base['conjunto'] == 'prueba'])
-    if len(te) < 10 or te[y].nunique() < 2:
-        st.warning('Hay muy pocas entidades de prueba (o una sola clase) con los filtros actuales.'); return
-    pr = clf.predict_proba(te[num + cat])[:, 1]; pc = (pr >= umbral).astype(int); yt = te[y].values
-    met = pd.DataFrame([{'Accuracy': accuracy_score(yt, pc), 'Precision': precision_score(yt, pc, zero_division=0),
-                         'Recall': recall_score(yt, pc), 'F1-score': f1_score(yt, pc), 'AUC-ROC': roc_auc_score(yt, pr),
-                         'Entidades de prueba': len(te)}])
-    st.dataframe(tabla4(met), hide_index=True, width='stretch')
+    st.subheader('Mueva el umbral: ¿a quién detecta el modelo? (entidades de prueba)')
+    te = filtro(base[base['conjunto'] == 'prueba']).dropna(subset=num + cat)
     if sin_ris:
-        st.caption(f'Modelo reentrenado sin Risaralda, evaluado solo fuera de Risaralda, con umbral {umbral:.2f}. Compárelo con el modelo original '
-                   '(selector de arriba) y "Excluir Risaralda" en la barra lateral: reentrenar equivale a bajar el umbral del original a 0,30.')
-    else:
-        st.caption(f'Métricas sobre las entidades de prueba que cumplen los filtros, con umbral {umbral:.2f}. Active "Excluir Risaralda" en la barra '
-                   'lateral: el recall cae mucho, porque parte del desempeño viene del bloque de colegios de Risaralda con respuestas idénticas.')
-    c1, c2 = st.columns(2)
-    cm = confusion_matrix(yt, pc, labels=[0, 1])
-    fig = px.imshow(cm, text_auto=True, color_continuous_scale='Blues', x=['Baja', 'Alta/Crítica'], y=['Baja', 'Alta/Crítica'],
-                    labels={'x': 'Predicho', 'y': 'Real', 'color': 'Entidades'}, title='Matriz de confusión (prueba)')
-    fig.update_layout(coloraxis_showscale=False)
-    c1.plotly_chart(fig, width='stretch')
-    fpr, tpr, _ = roc_curve(yt, pr)
-    fig = go.Figure([go.Scatter(x=fpr, y=tpr, mode='lines', line=dict(color=AZUL, width=3), name=f'Logística (AUC = {roc_auc_score(yt, pr):.4f})'),
-                     go.Scatter(x=[0, 1], y=[0, 1], mode='lines', line=dict(color=GRIS, dash='dash'), name='Azar')])
-    fig.update_layout(title='Curva ROC (prueba)', xaxis_title='Tasa de falsos positivos', yaxis_title='Recall',
-                      legend=dict(x=.45, y=.1))
-    c2.plotly_chart(fig, width='stretch')
+        te = te[te['departamento'] != 'RISARALDA']
+    if len(te) < 5 or te[y].nunique() < 2:
+        st.warning('Hay muy pocas entidades de prueba (o una sola clase) con los filtros actuales.'); return
+    p = clf.predict_proba(te[num + cat])[:, 1]
+    datos = {'umbral': 0.5, 'solo_fuera': bool(sin_ris), 'sin_ris_inicial': False,
+             'ents': [{'i': i, 'nom': str(r.razon_social).strip()[:60], 'mun': r.mpio, 'p': float(q), 'y': int(getattr(r, y)),
+                       'ris': r.departamento == 'RISARALDA', 'nivel': str(r.nivel_afectacion_cat)}
+                      for i, (r, q) in enumerate(zip(te.itertuples(), p))]}
+    _iframe(_plantilla('umbral.html', datos), 470)
 
-    st.subheader('3. Razones de odds')
-    pre, mod = clf.named_steps['preprocesamiento'], clf.named_steps['modelo']
-    co = pd.DataFrame({'Variable': [n.split('__', 1)[1] for n in pre.get_feature_names_out()], 'Coeficiente': mod.coef_[0]})
-    co['Razón de odds'] = np.exp(co['Coeficiente'])
-    co = co.sort_values('Coeficiente')
-    fig = px.bar(co, x='Razón de odds', y='Variable', orientation='h', log_x=True, height=650,
-                 color=np.where(co['Coeficiente'] > 0, 'Aumenta la probabilidad', 'Disminuye la probabilidad'),
-                 color_discrete_map={'Aumenta la probabilidad': AZUL, 'Disminuye la probabilidad': GRIS},
-                 title='Razones de odds (escala logarítmica; 1 = sin efecto)')
-    fig.add_vline(x=1, line_color='black')
-    fig.update_layout(yaxis_title=None, legend_title=None)
-    st.plotly_chart(fig, width='stretch')
+    with st.expander('Razones de odds del modelo'):
+        pre, mod = clf.named_steps['preprocesamiento'], clf.named_steps['modelo']
+        co = pd.DataFrame({'Variable': [_nombre_columna(n, cat) for n in pre.get_feature_names_out()], 'Coeficiente': mod.coef_[0]})
+        co['Razón de odds'] = np.exp(co['Coeficiente'])
+        co = co.reindex(co['Coeficiente'].abs().sort_values(ascending=False).index).head(14).sort_values('Coeficiente')
+        fig = px.bar(co, x='Razón de odds', y='Variable', orientation='h', log_x=True, height=480,
+                     color=np.where(co['Coeficiente'] > 0, 'Sube el riesgo', 'Baja el riesgo'),
+                     color_discrete_map={'Sube el riesgo': AZUL, 'Baja el riesgo': GRIS})
+        fig.add_vline(x=1, line_color='black')
+        fig.update_layout(yaxis_title=None, legend_title=None, margin=dict(t=10))
+        st.plotly_chart(fig, width='stretch')
 
 
 # =============================== PIPELINE (presentación) ===============================
@@ -428,3 +326,37 @@ def pestana_pipeline(base, reg, clf, meta, filtro):
                     'último. Se eligió **StandardScaler**, que permite leer los coeficientes como el efecto de aumentar una desviación estándar.')
     except FileNotFoundError:
         st.caption('Ejecute el notebook 03 para ver la comparación de escaladores con validación cruzada.')
+
+
+# =============================== PARÁMETROS PARA LAS VISUALIZACIONES INTERACTIVAS ===============================
+def params_lineal(reg):
+    """Coeficientes de la regresión lineal en unidades originales: índice = b0 + b_ipm·IPM + efecto depto + efecto tipo."""
+    pre, mod = reg.named_steps['preprocesamiento'], reg.named_steps['modelo']
+    esc = pre.named_transformers_['numericas'].named_steps['escalar']
+    oh = pre.named_transformers_['cualitativas'].named_steps['onehot']
+    cols = [c for n, _, cs in pre.transformers_ if n == 'cualitativas' for c in cs]
+    coef = dict(zip(pre.get_feature_names_out(), mod.coef_))
+    b_ipm = coef['numericas__ipm'] / esc.scale_[0]
+    efectos = {}
+    for c, cats in zip(cols, oh.categories_):
+        efectos[c] = {str(k): (0.0 if i == 0 else float(coef[f'cualitativas__{c}_{k}'])) for i, k in enumerate(cats)}
+    return {'b0': float(mod.intercept_ - b_ipm * esc.mean_[0]), 'ipm': float(b_ipm),
+            'dep': efectos['departamento'], 'tipo': efectos['tipo_entidad_g']}
+
+
+def params_logistica(clf):
+    """Parámetros del pipeline logístico para reproducirlo en JavaScript (log1p, estandarización, one-hot y coeficientes)."""
+    pre, mod = clf.named_steps['preprocesamiento'], clf.named_steps['modelo']
+    coef = dict(zip(pre.get_feature_names_out(), mod.coef_[0]))
+    num = []
+    for nombre, tr, cols in pre.transformers_:
+        if nombre in ('conteos', 'numericas'):
+            esc = tr.named_steps['escalar']
+            for j, c in enumerate(cols):
+                num.append({'var': c, 'lab': CORTO[c], 'log': nombre == 'conteos', 'media': float(esc.mean_[j]), 'sd': float(esc.scale_[j]),
+                            'coef': float(coef[f'{nombre}__{c}'])})
+    tr, cols = [(t, cs) for n, t, cs in pre.transformers_ if n == 'cualitativas'][0]
+    oh = tr.named_steps['onehot']
+    cat = [{'var': c, 'lab': CORTO[c], 'opciones': [{'v': str(k), 'coef': 0.0 if i == 0 else float(coef[f'cualitativas__{c}_{k}'])}
+                                                     for i, k in enumerate(cats)]} for c, cats in zip(cols, oh.categories_)]
+    return {'b0': float(mod.intercept_[0]), 'num': num, 'cat': cat}

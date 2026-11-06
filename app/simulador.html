@@ -1,0 +1,140 @@
+<!-- Simulador interactivo de la regresión logística. app/modelos.py reemplaza __DATOS__. Reproduce el pipeline exacto. -->
+<style>
+  :root { --azul:#2a78d6; --azul2:#0d366b; --claro:#eef4fc; --borde:#d6e3f5; --gris:#a3a29b; --texto:#1a1a1a; --naranja:#eb6834; --rojo:#c0392b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Source Sans Pro","Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--texto); }
+  .grid { display:grid; grid-template-columns:1.15fr 1fr; gap:14px; }
+  .card { border:1px solid var(--borde); border-radius:12px; background:#fff; padding:14px 16px; }
+  .preg { max-height:640px; overflow:auto; padding-right:6px; }
+  .lbl { font-size:12px; color:#5c5b56; margin:10px 0 5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .lbl:first-child { margin-top:0; }
+  .chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .chip { font-size:12.5px; padding:4px 10px; border-radius:999px; border:1px solid var(--borde); background:#fff; cursor:pointer; transition:all .2s; user-select:none; }
+  .chip:hover { border-color:var(--azul); }
+  .chip.on { background:var(--azul); color:#fff; border-color:var(--azul); }
+  .chip .d { font-size:10.5px; margin-left:5px; opacity:.75; font-variant-numeric:tabular-nums; }
+  select { font:inherit; font-size:13.5px; width:100%; padding:6px 8px; border:1px solid var(--borde); border-radius:8px; background:#fff; }
+  .sl { display:grid; grid-template-columns:1fr 36px; align-items:center; gap:8px; }
+  .sl b { text-align:right; font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; accent-color:var(--azul); }
+  .res { position:sticky; top:0; }
+  .anillo { display:flex; align-items:center; gap:16px; }
+  .anillo svg { flex:none; }
+  .ver { font-size:17px; font-weight:800; padding:6px 12px; border-radius:10px; display:inline-block; transition:all .3s; }
+  .ver.alta { background:#fdecea; color:var(--rojo); }
+  .ver.baja { background:#e5f4e4; color:#2e7d4f; }
+  .barras .b { display:grid; grid-template-columns:200px 1fr 46px; align-items:center; gap:8px; margin:5px 0; font-size:12.5px; }
+  .barras .p { position:relative; height:14px; background:#f4f6f9; border-radius:4px; }
+  .barras .mid { position:absolute; left:50%; top:-3px; bottom:-3px; width:1px; background:#9a9890; }
+  .barras .bar { position:absolute; top:2px; height:10px; border-radius:3px; transition:left .45s cubic-bezier(.2,.8,.2,1), width .45s cubic-bezier(.2,.8,.2,1); }
+  .barras .n { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
+  .umb { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; font-size:13px; margin-top:6px; }
+  svg text { font-family:inherit; }
+</style>
+<div class="grid">
+  <div class="card preg" id="preg"></div>
+  <div class="res">
+    <div class="card">
+      <div class="anillo">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <circle cx="75" cy="75" r="62" fill="none" stroke="#eef0f3" stroke-width="14"/>
+          <circle id="arco" cx="75" cy="75" r="62" fill="none" stroke="#2a78d6" stroke-width="14" stroke-linecap="round"
+                  transform="rotate(-90 75 75)" stroke-dasharray="389.6" stroke-dashoffset="389.6" style="transition:stroke-dashoffset .6s cubic-bezier(.2,.8,.2,1), stroke .4s"/>
+          <line id="umbl" x1="75" y1="6" x2="75" y2="22" stroke="#1a1a1a" stroke-width="2.5" transform="rotate(180 75 75)"/>
+          <text id="pct" x="75" y="82" text-anchor="middle" font-size="30" font-weight="800">—</text>
+        </svg>
+        <div>
+          <div style="font-size:12.5px;color:#5c5b56">Probabilidad de afectación Alta o Crítica</div>
+          <div class="ver" id="ver">—</div>
+          <svg id="sig" viewBox="0 0 230 92" width="230" style="margin-top:8px"></svg>
+        </div>
+      </div>
+      <div class="umb"><span>Umbral</span><input type="range" id="umbral" min="0.1" max="0.9" step="0.05"><b id="umbv"></b></div>
+    </div>
+    <div class="card barras" style="margin-top:12px">
+      <div style="font-size:12px;color:#5c5b56;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Lo que más empuja la predicción</div>
+      <div id="barras"></div>
+    </div>
+  </div>
+</div>
+<script>
+const D = __DATOS__, P = D.params;
+const f2 = v => Number(v).toLocaleString('es-CO', {minimumFractionDigits:2, maximumFractionDigits:2});
+const f1 = v => Number(v).toLocaleString('es-CO', {minimumFractionDigits:1, maximumFractionDigits:1});
+const S = JSON.parse(JSON.stringify(D.inicial));
+const preg = document.getElementById('preg');
+
+// municipio (fija el IPM)
+preg.insertAdjacentHTML('beforeend', '<div class="lbl">Municipio</div>');
+const mun = document.createElement('select'); preg.appendChild(mun);
+D.munis.forEach((m, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `${m.n} · IPM ${f1(m.ipm)} %`; mun.appendChild(o); });
+mun.value = Math.max(0, D.munis.findIndex(m => m.n === D.mun_inicial));
+mun.onchange = () => { S.ipm = D.munis[+mun.value].ipm; pintar(); };
+
+// preguntas cualitativas como interruptores
+P.cat.forEach(c => {
+  preg.insertAdjacentHTML('beforeend', `<div class="lbl">${c.lab}</div>`);
+  const box = document.createElement('div'); box.className = 'chips'; preg.appendChild(box);
+  c.opciones.forEach(o => {
+    const ch = document.createElement('span'); ch.className = 'chip'; ch.dataset.v = c.var; ch.dataset.o = o.v;
+    ch.innerHTML = `${o.v}<span class="d"></span>`; ch.onclick = () => { S[c.var] = o.v; pintar(); }; box.appendChild(ch);
+  });
+});
+// números (conteos e índice)
+const MAX = {n_servicios_caidos:7, n_infra_afectada:14, n_sistemas_afectados:8, indice_vulnerabilidad:5};
+P.num.filter(n => n.var !== 'ipm').forEach(n => {
+  preg.insertAdjacentHTML('beforeend', `<div class="lbl">${n.lab}</div>`);
+  const w = document.createElement('div'); w.className = 'sl';
+  w.innerHTML = `<input type="range" min="0" max="${MAX[n.var] || 10}" step="1" value="${S[n.var]}"><b></b>`; preg.appendChild(w);
+  const r = w.querySelector('input'); r.oninput = () => { S[n.var] = +r.value; pintar(); }; n._out = w.querySelector('b');
+});
+
+const umb = document.getElementById('umbral'); umb.value = D.umbral; umb.oninput = pintar;
+
+function aportes(s) {
+  const a = [];
+  P.num.forEach(n => { const x = n.log ? Math.log1p(s[n.var]) : s[n.var]; a.push({lab:n.lab, v:n.coef * (x - n.media) / n.sd}); });
+  P.cat.forEach(c => { const o = c.opciones.find(o => o.v === s[c.var]); a.push({lab:`${c.lab} = ${s[c.var]}`, v:o ? o.coef : 0}); });
+  return a;
+}
+const prob = s => { const z = P.b0 + aportes(s).reduce((t, a) => t + a.v, 0); return 1 / (1 + Math.exp(-z)); };
+
+// curva S
+const sig = document.getElementById('sig'), NS = 'http://www.w3.org/2000/svg';
+const el = (nm, a, p = sig) => { const q = document.createElementNS(NS, nm); for (const k in a) q.setAttribute(k, a[k]); p.appendChild(q); return q; };
+const gx = z => 10 + (z + 6) / 12 * 210, gy = p => 80 - p * 72;
+let d = ''; for (let z = -6; z <= 6.01; z += .2) d += (d ? 'L' : 'M') + gx(z).toFixed(1) + ',' + gy(1 / (1 + Math.exp(-z))).toFixed(1);
+const lu = el('line', {x1:10, x2:220, stroke:'#9a9890', 'stroke-dasharray':'3 3'});
+el('path', {d, fill:'none', stroke:'#2a78d6', 'stroke-width':2.5});
+const punto = el('circle', {r:7, fill:'#eb6834', stroke:'#fff', 'stroke-width':2});
+punto.style.transition = 'cx .5s cubic-bezier(.2,.8,.2,1), cy .5s cubic-bezier(.2,.8,.2,1)';
+el('text', {x:115, y:91, 'text-anchor':'middle', 'font-size':10, fill:'#8d8c86'}).textContent = 'puntos de riesgo → probabilidad';
+
+const barras = document.getElementById('barras'), filas = [];
+for (let i = 0; i < 8; i++) { const r = document.createElement('div'); r.className = 'b'; r.innerHTML = '<div class="t"></div><div class="p"><div class="mid"></div><div class="bar"></div></div><div class="n"></div>'; barras.appendChild(r); filas.push(r); }
+
+function pintar() {
+  const u = +umb.value; document.getElementById('umbv').textContent = Math.round(u * 100) + ' %';
+  const p = prob(S), z = Math.log(p / (1 - p));
+  // efecto de cambiar cada respuesta (puntos porcentuales) en los interruptores
+  document.querySelectorAll('.chip').forEach(ch => {
+    const on = S[ch.dataset.v] === ch.dataset.o; ch.classList.toggle('on', on);
+    const alt = {...S, [ch.dataset.v]: ch.dataset.o}, dpp = (prob(alt) - p) * 100;
+    ch.querySelector('.d').textContent = on ? '' : (dpp >= 0 ? '+' : '') + Math.round(dpp);
+  });
+  P.num.forEach(n => { if (n._out) n._out.textContent = S[n.var]; });
+  const arco = document.getElementById('arco'); arco.setAttribute('stroke-dashoffset', 389.6 * (1 - p)); arco.setAttribute('stroke', p >= u ? '#c0392b' : '#2a78d6');
+  document.getElementById('umbl').setAttribute('transform', `rotate(${u * 360} 75 75)`);
+  document.getElementById('pct').textContent = f1(p * 100) + '%';
+  const v = document.getElementById('ver'); v.className = 'ver ' + (p >= u ? 'alta' : 'baja'); v.textContent = p >= u ? 'Alta o Crítica' : 'Baja';
+  lu.setAttribute('y1', gy(u)); lu.setAttribute('y2', gy(u));
+  punto.setAttribute('cx', gx(Math.max(-6, Math.min(6, z)))); punto.setAttribute('cy', gy(p));
+  const a = aportes(S).sort((x, y) => Math.abs(y.v) - Math.abs(x.v)).slice(0, 8), M = Math.max(1, ...a.map(x => Math.abs(x.v)));
+  a.forEach((x, i) => {
+    const r = filas[i], w = Math.abs(x.v) / M * 50;
+    r.querySelector('.t').textContent = x.lab; r.querySelector('.n').textContent = (x.v >= 0 ? '+' : '') + f2(x.v);
+    const b = r.querySelector('.bar'); b.style.left = (x.v >= 0 ? 50 : 50 - w) + '%'; b.style.width = w + '%'; b.style.background = x.v >= 0 ? '#2a78d6' : '#a3a29b';
+  });
+}
+pintar();
+</script>

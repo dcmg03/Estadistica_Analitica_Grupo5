@@ -1,0 +1,69 @@
+<!-- Evaluación interactiva de la regresión lineal (errores en prueba). app/modelos.py reemplaza __DATOS__. -->
+<style>
+  :root { --azul:#2a78d6; --borde:#d6e3f5; --texto:#1a1a1a; --naranja:#eb6834; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Source Sans Pro","Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--texto); }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .k { border:1px solid var(--borde); border-radius:12px; padding:10px 14px; background:#fff; }
+  .k .l { font-size:12.5px; color:#5c5b56; }
+  .k .v { font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .card { border:1px solid var(--borde); border-radius:12px; background:#fff; padding:14px 16px; margin-top:12px; position:relative; }
+  .top { display:flex; align-items:center; gap:18px; }
+  .top .res { font-size:15px; }
+  .top .res b { font-size:30px; color:var(--azul); font-variant-numeric:tabular-nums; }
+  .top .ctl { flex:1; }
+  .lbl { font-size:12.5px; color:#5c5b56; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  input[type=range] { width:100%; accent-color:var(--azul); }
+  .tip { position:absolute; pointer-events:none; background:#1a1a1a; color:#fff; font-size:12px; padding:6px 9px; border-radius:7px; opacity:0; transition:opacity .15s; z-index:5; }
+  svg text { font-family:inherit; }
+</style>
+<div class="kpis" id="kpis"></div>
+<div class="card">
+  <div class="top">
+    <div class="res"><b id="pct">—</b> <span id="cuantas"></span></div>
+    <div class="ctl"><div class="lbl">Tolerancia: ± <span id="tolv"></span> puntos</div><input type="range" id="tol" min="0.25" max="2" step="0.25" value="1"></div>
+  </div>
+  <svg id="sv" viewBox="0 0 900 250" width="100%"></svg>
+  <div class="tip" id="tip"></div>
+</div>
+<script>
+const D = __DATOS__;
+const f2 = v => Number(v).toLocaleString('es-CO', {minimumFractionDigits:2, maximumFractionDigits:2});
+const e = D.test.map(t => ({...t, err: t.real - t.pred}));
+const n = e.length, media = e.reduce((s, t) => s + t.real, 0) / n;
+const mae = e.reduce((s, t) => s + Math.abs(t.err), 0) / n, rmse = Math.sqrt(e.reduce((s, t) => s + t.err ** 2, 0) / n);
+const pos = e.filter(t => t.real > 0), mape = pos.reduce((s, t) => s + Math.abs(t.err / t.real), 0) / pos.length * 100;
+const r2 = 1 - e.reduce((s, t) => s + t.err ** 2, 0) / e.reduce((s, t) => s + (t.real - media) ** 2, 0);
+document.getElementById('kpis').innerHTML = [['MAE', f2(mae) + ' pts'], ['RMSE', f2(rmse) + ' pts'], ['MAPE', f2(mape) + ' %'], ['R²', f2(r2)]]
+  .map(([l, v]) => `<div class="k"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
+
+const W = 900, H = 250, L = 20, R = 20, Y0 = 195, NS = 'http://www.w3.org/2000/svg', sv = document.getElementById('sv');
+const sx = x => L + (W - L - R) * (x + 3) / 6;
+const el = (nm, a, p = sv) => { const q = document.createElementNS(NS, nm); for (const k in a) q.setAttribute(k, a[k]); p.appendChild(q); return q; };
+const banda = el('rect', {y:4, height:Y0 + 2, fill:'#e7f1fb', rx:6}); banda.style.transition = 'x .4s, width .4s';
+el('line', {x1:L, x2:W - R, y1:Y0 + 6, y2:Y0 + 6, stroke:'#c9c8c1'});
+for (let x = -3; x <= 3; x++) { el('line', {x1:sx(x), x2:sx(x), y1:Y0 + 2, y2:Y0 + 10, stroke:'#c9c8c1'}); el('text', {x:sx(x), y:Y0 + 26, 'text-anchor':'middle', 'font-size':12, fill:'#5c5b56'}).textContent = (x > 0 ? '+' : '') + x; }
+el('line', {x1:sx(0), x2:sx(0), y1:4, y2:Y0 + 6, stroke:'#5c5b56', 'stroke-dasharray':'3 3'});
+el('text', {x:sx(-3), y:Y0 + 44, 'font-size':12, fill:'#8d8c86'}).textContent = '← el modelo se pasó';
+el('text', {x:sx(3), y:Y0 + 44, 'text-anchor':'end', 'font-size':12, fill:'#8d8c86'}).textContent = 'el modelo se quedó corto →';
+// apilado tipo "beeswarm" por intervalos de 0,1
+const pila = {}, tip = document.getElementById('tip');
+const dots = e.map(t => {
+  const b = Math.round(Math.max(-3, Math.min(3, t.err)) * 10); pila[b] = (pila[b] || 0) + 1;
+  const c = el('circle', {cx:sx(b / 10), cy:Y0 - 6 - (pila[b] - 1) * 9, r:4.2});
+  c.style.transition = 'fill .3s'; c.style.cursor = 'pointer';
+  c.onmouseenter = ev => { tip.innerHTML = `<b>${t.nom}</b><br>Real ${t.real} · modelo ${f2(t.pred)}`; const r = sv.getBoundingClientRect();
+    tip.style.left = (ev.clientX - r.left + 26) + 'px'; tip.style.top = (ev.clientY - r.top) + 'px'; tip.style.opacity = 1; };
+  c.onmouseleave = () => tip.style.opacity = 0;
+  return {t, c};
+});
+const tol = document.getElementById('tol');
+function pintar() {
+  const v = +tol.value; document.getElementById('tolv').textContent = f2(v);
+  banda.setAttribute('x', sx(-v)); banda.setAttribute('width', sx(v) - sx(-v));
+  let k = 0; dots.forEach(({t, c}) => { const ok = Math.abs(t.err) <= v; k += ok; c.setAttribute('fill', ok ? '#2a78d6' : '#d6d5cf'); });
+  document.getElementById('pct').textContent = Math.round(k / n * 100) + ' %';
+  document.getElementById('cuantas').textContent = `de las ${n} entidades de prueba: ${k} con error menor a ± ${f2(v)} puntos`;
+}
+tol.oninput = pintar; pintar();
+</script>

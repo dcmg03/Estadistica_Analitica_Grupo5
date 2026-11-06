@@ -1,0 +1,150 @@
+<!-- Regresión lineal interactiva. app/modelos.py reemplaza __DATOS__. -->
+<style>
+  :root { --azul:#2a78d6; --azul2:#1c5cab; --claro:#eef4fc; --borde:#d6e3f5; --gris:#a3a29b; --texto:#1a1a1a; --naranja:#eb6834; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Source Sans Pro","Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--texto); }
+  .fila1 { display:grid; grid-template-columns:1.25fr 1fr; gap:14px; }
+  .card { border:1px solid var(--borde); border-radius:12px; background:#fff; padding:14px 16px; }
+  .lbl { font-size:12.5px; color:#5c5b56; margin:0 0 6px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  select { font:inherit; font-size:14px; width:100%; padding:7px 9px; border:1px solid var(--borde); border-radius:8px; background:#fff; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 12px; }
+  .chip { font-size:13px; padding:5px 11px; border-radius:999px; border:1px solid var(--borde); background:#fff; cursor:pointer; transition:all .2s; user-select:none; }
+  .chip:hover { border-color:var(--azul); }
+  .chip.on { background:var(--azul); color:#fff; border-color:var(--azul); }
+  input[type=range] { width:100%; accent-color:var(--azul); }
+  .rango { display:flex; justify-content:space-between; font-size:12px; color:#8d8c86; }
+  .grande { display:flex; align-items:baseline; gap:8px; }
+  .grande .v { font-size:54px; font-weight:800; line-height:1; transition:color .4s; }
+  .grande .de { font-size:18px; color:#5c5b56; }
+  .escala { position:relative; height:16px; border-radius:8px; margin:14px 0 6px;
+            background:linear-gradient(90deg,#e7f1fb 0%,#9ec5f4 40%,#2a78d6 70%,#0d366b 100%); }
+  .escala .m { position:absolute; top:-6px; width:4px; height:28px; margin-left:-2px; background:var(--naranja); border-radius:2px; transition:left .6s cubic-bezier(.2,.8,.2,1); box-shadow:0 0 0 2px #fff; }
+  .escala-t { display:flex; justify-content:space-between; font-size:11.5px; color:#8d8c86; }
+  .fila2 { display:grid; grid-template-columns:1.25fr 1fr; gap:14px; margin-top:14px; }
+  svg text { font-family:inherit; }
+  .tip { position:absolute; pointer-events:none; background:#1a1a1a; color:#fff; font-size:12px; padding:6px 9px; border-radius:7px; opacity:0; transition:opacity .15s; max-width:260px; z-index:5; }
+  .wf .r { display:grid; grid-template-columns:150px 1fr 56px; align-items:center; gap:8px; margin:9px 0; font-size:13.5px; }
+  .wf .pista { position:relative; height:22px; background:#f4f6f9; border-radius:5px; }
+  .wf .seg { position:absolute; top:3px; height:16px; border-radius:4px; transition:left .6s cubic-bezier(.2,.8,.2,1), width .6s cubic-bezier(.2,.8,.2,1), background .3s; }
+  .wf .n { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
+  .wf .r.total { border-top:1px solid var(--borde); padding-top:9px; font-weight:700; }
+  .wf .ejes { display:grid; grid-template-columns:150px 1fr 56px; gap:8px; font-size:11px; color:#8d8c86; }
+  .wf .ejes div:nth-child(2) { display:flex; justify-content:space-between; }
+</style>
+
+<div class="fila1">
+  <div class="card">
+    <div class="lbl">Municipio</div>
+    <select id="mun"></select>
+    <div class="lbl" style="margin-top:12px">Tipo de entidad</div>
+    <div class="chips" id="tipos"></div>
+    <div class="lbl">Pobreza del municipio (IPM): <span id="ipmv" style="color:var(--texto)"></span></div>
+    <input type="range" id="ipm" min="0" max="100" step="0.5">
+    <div class="rango"><span>0 %</span><span>100 %</span></div>
+  </div>
+  <div class="card">
+    <div class="lbl">Fragilidad digital esperada</div>
+    <div class="grande"><span class="v" id="pred">—</span><span class="de">de 5</span></div>
+    <div class="escala"><div class="m" id="marca"></div></div>
+    <div class="escala-t"><span>0 · robusta</span><span>2,5</span><span>5 · muy frágil</span></div>
+  </div>
+</div>
+
+<div class="fila2">
+  <div class="card" style="position:relative">
+    <div class="lbl">Las 403 entidades y la recta del modelo</div>
+    <svg id="sc" viewBox="0 0 560 330" width="100%"></svg>
+    <div class="tip" id="tip"></div>
+  </div>
+  <div class="card wf">
+    <div class="lbl">Cómo se arma la predicción</div>
+    <div id="wf"></div>
+    <div class="ejes"><div></div><div><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div><div></div></div>
+  </div>
+</div>
+
+<script>
+const D = __DATOS__;
+const C = D.coef;
+const f2 = v => Number(v).toLocaleString('es-CO', {minimumFractionDigits:2, maximumFractionDigits:2});
+const f1 = v => Number(v).toLocaleString('es-CO', {minimumFractionDigits:1, maximumFractionDigits:1});
+const nombreDep = d => d.charAt(0) + d.slice(1).toLowerCase().replace(/ del /g,' del ').replace(/\b(\w)/g, m => m.toUpperCase()).replace(/ Del /g,' del ');
+let S = {dep: D.init.dep, tipo: D.init.tipo, ipm: D.init.ipm};
+const pred = s => C.b0 + C.ipm * s.ipm + C.dep[s.dep] + C.tipo[s.tipo];
+
+// controles
+const mun = document.getElementById('mun');
+D.munis.forEach((m, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `${m.n} · IPM ${f1(m.ipm)} %`; mun.appendChild(o); });
+mun.value = D.munis.findIndex(m => m.n === D.init.mun);
+mun.onchange = () => { const m = D.munis[+mun.value]; S.dep = m.dep; S.ipm = m.ipm; ipm.value = m.ipm; pintar(); };
+const tipos = document.getElementById('tipos');
+D.tipos.forEach(t => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = t; c.onclick = () => { S.tipo = t; pintar(); }; tipos.appendChild(c); });
+const ipm = document.getElementById('ipm'); ipm.value = S.ipm;
+ipm.oninput = () => { S.ipm = +ipm.value; pintar(); };
+
+// dispersión
+const W = 560, H = 330, L = 40, R = 14, T = 12, B = 34;
+const sx = x => L + (W - L - R) * x / 100, sy = y => T + (H - T - B) * (1 - y / 5);
+const sc = document.getElementById('sc'), NS = 'http://www.w3.org/2000/svg';
+const el = (n, a, p = sc) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; };
+for (let y = 0; y <= 5; y++) { el('line', {x1:L, x2:W-R, y1:sy(y), y2:sy(y), stroke:'#eef0f3'}); el('text', {x:L-8, y:sy(y)+4, 'text-anchor':'end', 'font-size':11, fill:'#8d8c86'}).textContent = y; }
+for (let x = 0; x <= 100; x += 20) el('text', {x:sx(x), y:H-14, 'text-anchor':'middle', 'font-size':11, fill:'#8d8c86'}).textContent = x + ' %';
+el('text', {x:(L+W-R)/2, y:H-1, 'text-anchor':'middle', 'font-size':11.5, fill:'#5c5b56'}).textContent = 'Pobreza del municipio (IPM)';
+const gLineas = el('g', {}), gPts = el('g', {}), resid = el('line', {stroke:'#eb6834', 'stroke-width':1.5, 'stroke-dasharray':'3 3', opacity:0});
+const yo = el('circle', {r:9, fill:'#eb6834', stroke:'#fff', 'stroke-width':3});
+yo.style.transition = 'cx .5s cubic-bezier(.2,.8,.2,1), cy .5s cubic-bezier(.2,.8,.2,1)';
+const tip = document.getElementById('tip');
+const pts = D.puntos.map(p => {
+  const c = el('circle', {cx:sx(p.ipm), cy:sy(p.y + p.j), r:3.2, fill:'#c9c8c1', opacity:.75}, gPts);
+  c.style.transition = 'r .3s, fill .3s, opacity .3s'; c.style.cursor = 'pointer';
+  c.onmouseenter = ev => {
+    const pr = C.b0 + C.ipm * p.ipm + C.dep[p.dep] + C.tipo[p.tipo];
+    resid.setAttribute('x1', sx(p.ipm)); resid.setAttribute('x2', sx(p.ipm)); resid.setAttribute('y1', sy(p.y + p.j)); resid.setAttribute('y2', sy(pr)); resid.setAttribute('opacity', 1);
+    tip.innerHTML = `<b>${p.nom}</b><br>${p.mun}<br>Real ${p.y} · modelo ${f2(pr)} · error ${(p.y - pr >= 0 ? '+' : '') + f2(p.y - pr)}`;
+    const r = sc.getBoundingClientRect(); tip.style.left = (ev.clientX - r.left + 26) + 'px'; tip.style.top = (ev.clientY - r.top + 10) + 'px'; tip.style.opacity = 1;
+  };
+  c.onmouseleave = () => { resid.setAttribute('opacity', 0); tip.style.opacity = 0; };
+  c.onclick = () => { S = {dep:p.dep, tipo:p.tipo, ipm:p.ipm}; ipm.value = p.ipm; const k = D.munis.findIndex(m => m.n === p.mun); if (k >= 0) mun.value = k; pintar(); };
+  return {p, c};
+});
+const COL = ['#0d366b', '#2a78d6', '#9ec5f4', '#a3a29b'];
+
+// anatomía
+const wf = document.getElementById('wf');
+const filas = ['base', 'ipm', 'dep', 'tipo', 'total'].map(k => {
+  const r = document.createElement('div'); r.className = 'r' + (k === 'total' ? ' total' : '');
+  r.innerHTML = `<div class="t"></div><div class="pista"><div class="seg"></div></div><div class="n"></div>`; wf.appendChild(r); return r;
+});
+function barra(r, txt, desde, hasta, color, total) {
+  r.querySelector('.t').textContent = txt;
+  const a = Math.max(0, Math.min(5, Math.min(desde, hasta))), b = Math.max(0, Math.min(5, Math.max(desde, hasta)));
+  const s = r.querySelector('.seg'); s.style.left = (a / 5 * 100) + '%'; s.style.width = Math.max(.6, (b - a) / 5 * 100) + '%'; s.style.background = color;
+  const d = hasta - desde; r.querySelector('.n').textContent = total ? f2(hasta) : (d >= 0 ? '+' : '') + f2(d);
+}
+
+function pintar() {
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.textContent === S.tipo));
+  document.getElementById('ipmv').textContent = f1(S.ipm) + ' %';
+  const p = pred(S);
+  const v = document.getElementById('pred'); v.textContent = f2(p); v.style.color = p >= 2.5 ? '#0d366b' : (p >= 1.5 ? '#2a78d6' : '#6da7ec');
+  document.getElementById('marca').style.left = Math.max(0, Math.min(100, p / 5 * 100)) + '%';
+  gLineas.innerHTML = '';
+  D.tipos.forEach((t, i) => {
+    const on = t === S.tipo, y0 = C.b0 + C.dep[S.dep] + C.tipo[t], y1 = y0 + C.ipm * 100;
+    const ln = el('line', {x1:sx(0), y1:sy(y0), x2:sx(100), y2:sy(y1), stroke: on ? '#eb6834' : COL[i], 'stroke-width': on ? 3.5 : 1.5, opacity: on ? 1 : .55}, gLineas);
+    el('text', {x:sx(100) - 2, y:sy(y1) - 6, 'text-anchor':'end', 'font-size':10.5, fill: on ? '#eb6834' : '#8d8c86', 'font-weight': on ? 700 : 400}, gLineas).textContent = t;
+  });
+  pts.forEach(({p, c}) => {
+    const mismo = p.dep === S.dep && p.tipo === S.tipo, dep = p.dep === S.dep;
+    c.setAttribute('r', mismo ? 5.5 : 3.2); c.setAttribute('fill', mismo ? '#2a78d6' : (dep ? '#9ec5f4' : '#d6d5cf')); c.setAttribute('opacity', mismo ? .95 : (dep ? .8 : .45));
+  });
+  yo.setAttribute('cx', sx(S.ipm)); yo.setAttribute('cy', sy(Math.max(0, Math.min(5, p))));
+  const b = C.b0, i1 = b + C.ipm * S.ipm, i2 = i1 + C.dep[S.dep], i3 = i2 + C.tipo[S.tipo];
+  barra(filas[0], 'Punto de partida', 0, b, '#a3a29b', true);
+  barra(filas[1], 'Pobreza (IPM)', b, i1, '#2a78d6');
+  barra(filas[2], D.depnom[S.dep] || S.dep, i1, i2, i2 >= i1 ? '#2a78d6' : '#a3a29b');
+  barra(filas[3], S.tipo, i2, i3, i3 >= i2 ? '#2a78d6' : '#a3a29b');
+  barra(filas[4], 'Fragilidad esperada', 0, i3, '#eb6834', true);
+}
+pintar();
+</script>

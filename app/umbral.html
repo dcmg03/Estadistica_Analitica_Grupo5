@@ -1,0 +1,104 @@
+<!-- Explorador del umbral de la regresión logística (entidades de prueba). app/modelos.py reemplaza __DATOS__. -->
+<style>
+  :root { --azul:#2a78d6; --borde:#d6e3f5; --texto:#1a1a1a; --naranja:#eb6834; --rojo:#c0392b; --gris:#a3a29b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Source Sans Pro","Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--texto); }
+  .kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+  .k { border:1px solid var(--borde); border-radius:12px; padding:10px 14px; background:#fff; }
+  .k .l { font-size:12.5px; color:#5c5b56; }
+  .k .v { font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; transition:color .3s; }
+  .fila { display:grid; grid-template-columns:1fr 260px; gap:12px; margin-top:12px; }
+  .card { border:1px solid var(--borde); border-radius:12px; background:#fff; padding:14px 16px; position:relative; }
+  .ctl { display:flex; align-items:center; gap:14px; margin-bottom:6px; }
+  .ctl .u { flex:1; }
+  .lbl { font-size:12.5px; color:#5c5b56; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  input[type=range] { width:100%; accent-color:var(--azul); }
+  .tog { font-size:13px; padding:6px 12px; border-radius:999px; border:1px solid var(--borde); background:#fff; cursor:pointer; user-select:none; white-space:nowrap; }
+  .tog.on { background:var(--naranja); border-color:var(--naranja); color:#fff; }
+  .tog.fijo { opacity:.6; cursor:default; }
+  .mc { display:grid; grid-template-columns:auto 1fr 1fr; gap:6px; font-size:12px; align-items:center; }
+  .mc .c { border-radius:10px; padding:10px 6px; text-align:center; transition:background .3s; }
+  .mc .c b { display:block; font-size:28px; font-variant-numeric:tabular-nums; }
+  .mc .h { text-align:center; color:#5c5b56; }
+  .mc .r { color:#5c5b56; writing-mode:vertical-rl; transform:rotate(180deg); text-align:center; }
+  .ley { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:#5c5b56; margin-top:4px; }
+  .ley i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:-1px; }
+  .tip { position:absolute; pointer-events:none; background:#1a1a1a; color:#fff; font-size:12px; padding:6px 9px; border-radius:7px; opacity:0; transition:opacity .15s; z-index:5; }
+  svg text { font-family:inherit; }
+</style>
+<div class="kpis" id="kpis"></div>
+<div class="fila">
+  <div class="card">
+    <div class="ctl">
+      <div class="u"><div class="lbl">Umbral de decisión: <span id="uv" style="color:var(--texto)"></span></div><input type="range" id="u" min="0.05" max="0.95" step="0.01"></div>
+      <span class="tog" id="ris">Excluir Risaralda</span>
+    </div>
+    <svg id="sv" viewBox="0 0 860 250" width="100%"></svg>
+    <div class="ley"><span><i style="background:#2a78d6"></i>Detectada a tiempo</span><span><i style="background:#eb6834"></i>Se le escapa al modelo</span>
+      <span><i style="background:#c0392b"></i>Falsa alarma</span><span><i style="background:#d6d5cf"></i>Bien descartada</span></div>
+    <div class="tip" id="tip"></div>
+  </div>
+  <div class="card">
+    <div class="lbl" style="margin-bottom:8px">Matriz de confusión</div>
+    <div class="mc">
+      <div></div><div class="h">Predice Baja</div><div class="h">Predice Alta</div>
+      <div class="r">Real Baja</div><div class="c" id="tn" style="background:#f1f1ee"></div><div class="c" id="fp" style="background:#fbebeb"></div>
+      <div class="r">Real Alta</div><div class="c" id="fn" style="background:#f9ece7"></div><div class="c" id="tp" style="background:#e7f1fb"></div>
+    </div>
+  </div>
+</div>
+<script>
+const D = __DATOS__;
+const f2 = v => isFinite(v) ? Number(v).toLocaleString('es-CO', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+let sinRis = D.sin_ris_inicial || D.solo_fuera;
+const tog = document.getElementById('ris'); if (D.solo_fuera) tog.classList.add('fijo');
+tog.onclick = () => { if (D.solo_fuera) return; sinRis = !sinRis; dibujar(); };
+const u = document.getElementById('u'); u.value = D.umbral; u.oninput = colorear;
+
+const W = 860, H = 250, L = 120, R = 16, NS = 'http://www.w3.org/2000/svg', sv = document.getElementById('sv'), tip = document.getElementById('tip');
+const sx = p => L + (W - L - R) * p;
+const el = (nm, a, p = sv) => { const q = document.createElementNS(NS, nm); for (const k in a) q.setAttribute(k, a[k]); p.appendChild(q); return q; };
+const LANES = [{y:1, t:'Alta/Crítica real', base:100}, {y:0, t:'Baja real', base:205}];
+let dots = [];
+
+function auc(lista) {
+  const pos = lista.filter(d => d.y === 1), neg = lista.filter(d => d.y === 0); if (!pos.length || !neg.length) return NaN;
+  let s = 0; pos.forEach(a => neg.forEach(b => { s += a.p > b.p ? 1 : (a.p === b.p ? .5 : 0); })); return s / (pos.length * neg.length);
+}
+function dibujar() {
+  tog.classList.toggle('on', sinRis);
+  sv.innerHTML = '';
+  const zona = el('rect', {y:4, height:H - 40, fill:'#fdf3ef', rx:6}); zona.id = 'zona';
+  LANES.forEach(l => { el('line', {x1:L, x2:W - R, y1:l.base + 4, y2:l.base + 4, stroke:'#e3e3de'}); el('text', {x:L - 10, y:l.base - 2, 'text-anchor':'end', 'font-size':12, fill:'#5c5b56', 'font-weight':600}).textContent = l.t; });
+  for (let p = 0; p <= 1.001; p += .1) el('text', {x:sx(p), y:H - 14, 'text-anchor':'middle', 'font-size':11, fill:'#8d8c86'}).textContent = Math.round(p * 100) + ' %';
+  el('text', {x:(L + W - R) / 2, y:H, 'text-anchor':'middle', 'font-size':11.5, fill:'#5c5b56'}).textContent = 'Probabilidad que asigna el modelo';
+  const ln = el('line', {y1:2, y2:H - 32, stroke:'#1a1a1a', 'stroke-width':2.5}); ln.id = 'lin';
+  const lista = D.ents.filter(d => !(sinRis && d.ris));
+  dots = lista.map(d => {
+    const lane = LANES.find(l => l.y === d.y), j = ((Math.sin((d.i + 1) * 12.9898) * 43758.5453) % 1 + 1) % 1;
+    const c = el('circle', {cx:sx(d.p), cy:lane.base - 6 - j * 78, r:4.4, opacity:.9}); c.style.transition = 'fill .25s'; c.style.cursor = 'pointer';
+    c.onmouseenter = ev => { tip.innerHTML = `<b>${d.nom}</b><br>${d.mun}<br>Probabilidad ${Math.round(d.p * 1000) / 10} % · declaró ${d.nivel}`;
+      const r = sv.getBoundingClientRect(); tip.style.left = Math.min(ev.clientX - r.left + 20, r.width - 230) + 'px'; tip.style.top = (ev.clientY - r.top + 30) + 'px'; tip.style.opacity = 1; };
+    c.onmouseleave = () => tip.style.opacity = 0;
+    return {d, c};
+  });
+  dots.auc = auc(lista);
+  colorear();
+}
+function colorear() {
+  const t = +u.value; document.getElementById('uv').textContent = Math.round(t * 100) + ' %';
+  const z = document.getElementById('zona'); z.setAttribute('x', sx(t)); z.setAttribute('width', sx(1) - sx(t));
+  const l = document.getElementById('lin'); l.setAttribute('x1', sx(t)); l.setAttribute('x2', sx(t));
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  dots.forEach(({d, c}) => {
+    const pr = d.p >= t;
+    if (d.y && pr) { tp++; c.setAttribute('fill', '#2a78d6'); } else if (d.y) { fn++; c.setAttribute('fill', '#eb6834'); }
+    else if (pr) { fp++; c.setAttribute('fill', '#c0392b'); } else { tn++; c.setAttribute('fill', '#d6d5cf'); }
+  });
+  const n = tp + fp + tn + fn, prec = tp / (tp + fp), rec = tp / (tp + fn), f1 = 2 * prec * rec / (prec + rec);
+  document.getElementById('kpis').innerHTML = [['Accuracy', (tp + tn) / n], ['Precision', prec], ['Recall', rec], ['F1-score', f1], ['AUC-ROC', dots.auc]]
+    .map(([lb, v]) => `<div class="k"><div class="l">${lb}</div><div class="v">${f2(v)}</div></div>`).join('');
+  [['tp', tp], ['fp', fp], ['tn', tn], ['fn', fn]].forEach(([k, v]) => document.getElementById(k).innerHTML = `<b>${v}</b>`);
+}
+dibujar();
+</script>
