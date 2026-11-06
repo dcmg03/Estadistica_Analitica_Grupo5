@@ -1,4 +1,4 @@
-"""Dashboard del Laboratorio 2 — Afectación digital de entidades públicas por el terremoto del 10 de agosto de 2026.
+"""Dashboard de los Laboratorios 2 y 3 — Afectación digital de entidades públicas por el terremoto del 10 de agosto de 2026.
 
 Ejecutar desde la carpeta del proyecto:  streamlit run app/app.py
 """
@@ -12,6 +12,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from estadistica import medidas, forma_texto, atipicos_iqr, correlaciones, independencia, comparar_grupos
+import modelos
 
 st.set_page_config(page_title='Afectación digital · Terremoto 2026', layout='wide')
 
@@ -145,10 +146,47 @@ if len(df) < 10:
     st.stop()
 
 st.title('Afectación digital de entidades públicas tras el terremoto del 10 de agosto de 2026')
-st.caption('Laboratorio 2 · Exploración de datos e hipótesis de asociación · Resultados redondeados a 4 decimales · '
-           'Base: 408 entidades con IPM del DANE (Nuevo Belén de Bajirá no tiene dato censal)')
+st.caption('Laboratorio 3 · Proyecto final de modelación (incluye la exploración e hipótesis del Laboratorio 2) · Resultados redondeados '
+           'a 4 decimales · Base: 408 entidades con IPM del DANE (403 sin duplicados en los modelos)')
 
-t1, t2, t3, t4, t5, t6 = st.tabs(['Resumen', 'Univariado', 'Correlación', 'Independencia (χ²)', 'ANOVA vs Kruskal-Wallis', 'Foco Chocó'])
+t0, t1, t2, t3, t4, t5, t6, t7, t8 = st.tabs(['Proyecto', 'Resumen', 'Univariado', 'Correlación', 'Independencia (χ²)', 'ANOVA vs Kruskal-Wallis',
+                                              'Foco Chocó', 'Modelo: regresión lineal', 'Modelo: regresión logística'])
+
+
+def filtro_modelos(t):
+    """Aplica los filtros de la barra lateral a la base de modelación."""
+    t = t[t['departamento'].isin(deps) & t['tipo_entidad'].str.strip().isin(tipos)]
+    return t[t['departamento'] != 'RISARALDA'] if sin_ris else t
+
+
+# ---------------- Proyecto ----------------
+with t0:
+    st.markdown('''
+**Contexto.** El 10 de agosto de 2026 un sismo de magnitud 7,4 con epicentro en San José del Palmar (Chocó) afectó a Risaralda, Valle del Cauca,
+Caldas, Chocó y Quindío. MinTIC encuestó a 409 entidades públicas sobre su conectividad, energía, sistemas de información y personal TIC. Cruzamos
+la encuesta con el índice de pobreza multidimensional (IPM) municipal del DANE.
+
+**Objetivo.** Ayudar a MinTIC a **priorizar la atención** de las entidades afectadas con un criterio territorial, mediante dos modelos:
+
+| Tarea | Pregunta | Variable respuesta | Modelo | Métricas |
+|---|---|---|---|---|
+| Clasificación | ¿La entidad está en afectación Alta o Crítica? | `alto_critico` (1/0) | Regresión logística | Accuracy, Precision, Recall, F1 (y AUC-ROC) |
+| Regresión | ¿Cuánta fragilidad digital se espera según su municipio y su tipo? | Índice de vulnerabilidad (0-5) | Regresión lineal | MAE, RMSE, MAPE, R² |
+
+**Proceso** (notebooks del repositorio): limpieza y EDA (Lab 1) → estadística descriptiva e hipótesis de asociación (Lab 2) → limpieza para
+modelar, pruebas de hipótesis, pipelines con escalamiento, entrenamiento, evaluación y validación de supuestos (Lab 3).
+
+**Cómo usar esta aplicación.** Los **filtros de la barra lateral** (departamento, tipo de entidad, excluir Risaralda) aplican a todas las
+pestañas, incluidas las métricas de los modelos. Las pestañas *Resumen* a *Foco Chocó* son la exploración; las dos últimas muestran la
+evaluación de cada modelo y permiten **hacer predicciones** con sus propios datos.
+''')
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric('Logística · F1 (prueba)', '0,9000')
+    c2.metric('Logística · F1 sin Risaralda (CV)', '0,5603')
+    c3.metric('Lineal · R² (CV repetida)', '0,2318')
+    c4.metric('Lineal · MAE (CV repetida)', '0,7132')
+    st.warning('**Advertencia principal:** 145 de las 160 entidades en "Crítico" son colegios de Risaralda con respuestas casi idénticas. '
+               'El clasificador aprende en parte ese patrón: fuera de Risaralda su desempeño es bastante menor. Hay que validar ese bloque con MinTIC.')
 
 # ---------------- Resumen ----------------
 with t1:
@@ -281,3 +319,12 @@ with t6:
                'más dependencia del satélite, energía inestable y casi sin seguros. Priorizar solo por autoevaluación puede relegarlo.')
     st.caption('Siguiente fase propuesta: contrastar la pobreza de 2025 (línea base) con la de 2026 cuando el DANE la publique, '
                'por departamento y en los municipios PDET.')
+
+# ---------------- Modelos (Lab 3) ----------------
+_m = modelos.disponible()
+with t7:
+    if _m:
+        modelos.pestana_regresion(_m[3], _m[0], _m[2], filtro_modelos)
+with t8:
+    if _m:
+        modelos.pestana_clasificacion(_m[3], _m[1], _m[2], filtro_modelos)
