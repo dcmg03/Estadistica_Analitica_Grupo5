@@ -1,0 +1,43 @@
+{
+  "sklearn": "1.9.1",
+  "semilla": 42,
+  "regresion": {
+    "respuesta": "indice_vulnerabilidad",
+    "numericas": [
+      "ipm"
+    ],
+    "cualitativas": [
+      "departamento",
+      "tipo_entidad_g"
+    ]
+  },
+  "clasificacion": {
+    "respuesta": "alto_critico",
+    "numericas": [
+      "ipm",
+      "n_servicios_caidos",
+      "n_infra_afectada",
+      "n_sistemas_afectados",
+      "indice_vulnerabilidad"
+    ],
+    "cualitativas": [
+      "tipo_entidad_g",
+      "estado_conectividad",
+      "energia_g",
+      "personal_afectado",
+      "estado_sistemas",
+      "riesgo_continuidad",
+      "sede_contingencia",
+      "zonas_incomunicadas",
+      "estado_infra"
+    ],
+    "hiperparametros": {
+      "C": 0.1,
+      "class_weight": "balanced"
+    },
+    "hiperparametros_sin_risaralda": {
+      "C": 0.3,
+      "class_weight": "balanced"
+    }
+  }
+}

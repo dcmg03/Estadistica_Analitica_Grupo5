@@ -8,3 +8,5 @@ openpyxl>=3.1
 plotly>=5.18
 streamlit>=1.50
 ipykernel>=6.25
+statsmodels>=0.14
+joblib>=1.3

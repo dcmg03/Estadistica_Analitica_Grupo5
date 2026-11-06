@@ -8,7 +8,8 @@ Equipo: Edwart Stevens González Ríos · Karen Julieth Hernández Chaparro · D
 
 Analizamos la encuesta de MinTIC a 409 entidades públicas afectadas por el sismo, cruzada con el índice de pobreza
 multidimensional municipal del DANE, con foco en el Chocó. El objetivo de modelación es clasificar el nivel de afectación
-digital de cada entidad.
+digital de cada entidad. En el Lab 3 (proyecto final) se entrenan una **regresión logística** (afectación Alta o Crítica) y una
+**regresión lineal** (índice de vulnerabilidad digital) y se despliegan en la app de Streamlit.
 
 ## Estructura del proyecto
 
@@ -16,17 +17,25 @@ digital de cada entidad.
 Estadistica_Analitica_Grupo5/
 ├── notebooks/
 │   ├── 01_Lab1_EDA_Encuesta_Terremoto.ipynb      ← Lab 1: exploración, calidad de datos, objetivo, cruce con el DANE
-│   └── 02_Lab2_Estadistica_Asociacion.ipynb      ← Lab 2: descriptivas, forma, correlación, χ², ANOVA/Kruskal-Wallis
+│   ├── 02_Lab2_Estadistica_Asociacion.ipynb      ← Lab 2: descriptivas, forma, correlación, χ², ANOVA/Kruskal-Wallis
+│   └── 03_Lab3_Modelacion.ipynb                  ← Lab 3: hipótesis, pipelines, regresión lineal y logística, evaluación
 ├── app/
-│   ├── app.py                ← dashboard en Streamlit (entregable del Lab 2)
-│   └── estadistica.py        ← funciones estadísticas del dashboard
+│   ├── app.py                ← app ejecutiva en Streamlit: navegación y anexo del Lab 2
+│   ├── ejecutivo.py          ← resumen ejecutivo, priorización y conclusiones (estilo)
+│   ├── linea_ensamble.html   ← animación del pipeline paso a paso
+│   ├── estadistica.py        ← funciones estadísticas del dashboard
+│   └── modelos.py            ← pestañas del Lab 3: Pipeline (paso a paso), modelos, predicciones y evaluación
+├── models/                   ← modelos entrenados por el notebook 03 (se regeneran con Run All)
+│   ├── regresion_lineal.joblib, regresion_logistica.joblib
+│   └── metadatos.json
 ├── data/
 │   ├── raw/                  ← datos originales: NO se editan
 │   │   ├── Resultados_encuesta_entidades_Terremoto_20261022.csv   (MinTIC, datos.gov.co)
 │   │   └── anexo-censal-pobreza-municipal-2018.xlsx               (DANE, IPM municipal 2018)
 │   └── processed/            ← generados por los notebooks (se pueden borrar y regenerar)
 │       ├── base_lab1_preparada.csv, base_lab1_con_ipm.csv, diccionario_variables.csv   (salen del Lab 1)
-│       └── base_lab2.csv, municipios_lab2.csv                                           (salen del Lab 2)
+│       ├── base_lab2.csv, municipios_lab2.csv                                           (salen del Lab 2)
+│       └── base_lab3.csv                                                                (sale del Lab 3)
 ├── docs/
 │   └── lab1/                 ← entregables del Lab 1: presentación, propuesta APA, guion, diccionario
 ├── .vscode/                  ← extensiones recomendadas y lanzador del dashboard
@@ -35,7 +44,8 @@ Estadistica_Analitica_Grupo5/
 ```
 
 Flujo de los datos: `data/raw` → **notebook 01** → `data/processed` (bases del Lab 1) → **notebook 02** → `data/processed`
-(bases del Lab 2) → **app**. El Lab 2 no repite la limpieza del Lab 1: lee lo que este exporta.
+(bases del Lab 2) → **notebook 03** → `models/` y `data/processed/base_lab3.csv` → **app**. Cada laboratorio lee lo que exporta el
+anterior y no repite su limpieza.
 
 ## Cómo ejecutarlo en Visual Studio Code
 
@@ -46,8 +56,20 @@ Flujo de los datos: `data/raw` → **notebook 01** → `data/processed` (bases d
 3. Instalar dependencias: `pip install -r requirements.txt`
 4. Abrir `notebooks/01_Lab1_EDA_Encuesta_Terremoto.ipynb`, elegir el kernel `.venv` y ejecutar **Run All**.
 5. Abrir `notebooks/02_Lab2_Estadistica_Asociacion.ipynb` y ejecutar **Run All**.
-6. Dashboard: desde la carpeta del proyecto, `streamlit run app/app.py`
+6. Abrir `notebooks/03_Lab3_Modelacion.ipynb` y ejecutar **Run All** (guarda los modelos en `models/`).
+7. Dashboard: desde la carpeta del proyecto, `streamlit run app/app.py`
    (o *Run and Debug → "Streamlit: dashboard del laboratorio"*). Abre en `http://localhost:8501`.
+
+## Laboratorio 3: modelos
+
+| Tarea | Variable respuesta | Modelo | Resultado en prueba | Validación cruzada repetida (5 × 10) |
+|---|---|---|---|---|
+| Clasificación | `alto_critico` (afectación Alta o Crítica) | Regresión logística (C = 0,1, clases balanceadas) | Accuracy 0,9010 · Precision 0,9375 · Recall 0,8654 · F1 0,9000 · AUC 0,9749 | F1 0,8746 con toda la base; **0,5603 sin Risaralda** |
+| Regresión | `indice_vulnerabilidad` (0-5) | Regresión lineal (IPM + departamento + tipo de entidad) | MAE 0,7359 · RMSE 0,9585 · MAPE 36,95 % · R² 0,0661 | MAE 0,7132 · R² 0,2318 |
+
+La partición de prueba de la regresión quedó en el percentil 4 de la validación cruzada; la estimación confiable es la de la validación
+cruzada. El desempeño del clasificador depende del bloque de colegios de Risaralda con respuestas idénticas (ver la sección 8 del notebook).
+Los modelos `.joblib` se guardaron con scikit-learn 1.9; si la app avisa de otra versión, vuelva a ejecutar el notebook 03.
 
 ## Cómo trabajamos en equipo con GitHub
 
